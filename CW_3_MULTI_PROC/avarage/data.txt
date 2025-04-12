@@ -1,0 +1,146 @@
+   
+[Lab] Cwiczenie 3 - rozproszone sieciowo procesy Ostatnia modyfikacja: Z. Krawczyk 27.03.2022 23:12
+Temat wiodący: "Przetwarzanie równoległe rozproszone bez specjalnych mechanizmów synchronizacji i komunikacji między węzłami. Problem przetwarzania równoległego do rozwiązania - dystrybucja dużego zbioru danych wejściowych."
+
+Uwaga: wątki w Pythonie nie wykorzystują własności wieloprocesorowych o ile nie zostaną specjalnie zaimplementowane, napisane w sposób rozproszony, ze względu na Global Interpreter Lock (https://wiki.python.org/moin/GlobalInterpreterLock).
+
+W zadaniu wykorzystamy moduł języka Python - multiprocessing (dostepny w bibliotece standardowej języka Python). Multiprocessing pozwala w języku Python na lokalne oraz zdalne przetwarzanie równoległe. Lokalnie pozwala w sposób efektywny uniknąć GIL, poprzez
+
+wykorzystanie podprocesów zamiast wątków Dokumentacja pakietu dostępna jest: https://docs.python.org/3/library/multiprocessing.html
+
+Na potrzeby ćwiczenia warto zapoznać się szczególnie z klasami:
+
+Process (pozwala na tworzenie obiektów nowych procesów),
+Queue (klasa kolejki - dzięki której będziemy wymieniać dane pomiędzy procesami),
+Manager - obiekty typu Manager zarządzają procesem - serwerem, który udostępnia współdzielone obiekty (np. obiekt kolejki). Inne procesy mogą uzyskać dostęp do obiektów współdzielonych. Obiekty typu Manager pozwalają również na dostęp do kolejki poprzez połączenie sieciowe.
+Zadanie
+
+Proszę napisać program realizujący <u>rozproszone</u> zadanie obliczenia iloczynu macierzy i wektora. Program powinien składać się z:
+
+serwera - tworzącego obiekt typu Manager udostępniający dwie kolejki - jedną, do której przekazywane są dane do obliczeń oraz drugą - do której przekazywane są cząstkowe rozwiązania.
+klienta - wczytującego dane macierzy i wektora i dzielącego dane na liczbę zadań przekazaną jako argument programu. Klient dodaje zadania do pierwszej kolejki, odbiera wyniki wrzucone do kolejki z wynikami czątkowymi i łączy wynik w wektor w odpowiedniej kolejności.
+programu wykonującego obliczenia (workera) - program pobiera zadania z kolejki, tworzy określoną liczbę podprocesów (może odpowiadać np. liczbie procesorów dostępnych w danej maszynie), wykonuje obliczenia dla kolejnych odebranych zadań, wyniki dodaje do kolejki z wynikami czątkowymi. Program proszę uruchomić również na innej maszynie/ maszynach niż na tej na której znajduje się program serwera.
+Do zbadania eksperymentalnie:
+
+Czas wykonywania mnożenia macierzy przez wektor przy różnych (zaproponowanych przez każdy zespół) strategiach dystrybucji danych do węzłów obliczeniowych.
+Porównanie czasu wykonywania tego samego zadania na jednej maszynie z wieloma rdzeniami/procesorami z wykonaniem na kilku maszynach.
+Zbadanie prawa Amdhala dla samodzielnie wygenerowancyh danych testowych.
+1(1−P)+PN
+. (gdzie P - proporcja programu, która może ulec zrównolegleniu, N - liczba procesorów).
+Należy samodzielnie przeanalizować, która część napisanego programu może być zrównoleglona.
+Do przeanalizowania:
+
+Jak efektywnie przekazywać dane pomiędzy węzłami obliczeniowymi?
+Jakiego typu zadania warto obliczać za pomocą narzędzi "process-based execution"?
+Warto porównać z waŧkami.
+Porównać uruchamianie na kilku maszych oraz na jednej maszynie z kilkoma rdzeniami? Czy warto stosować algorytm rozproszony sieciowo? Kiedy?
+Jak ważna w tym modelu jest prędkość komunikacji miedzy węzłami?
+W załączonych plikach udostępniono, gotowy przykładowy kod "serwera", przykładowy program sekwencyjny oraz dużą macierz i wektor testowy.
+
+Prosty przykład serwera z jedną kolejką oraz dwóch programów, z których jeden dodaje dane do kolejki, a drugi dane z kolejki pobiera:
+
+manager:
+
+from multiprocessing.managers import BaseManager
+import Queue
+
+class QueueManager(BaseManager):
+    pass
+
+queue = Queue.Queue()
+QueueManager.register('get_queue', callable=lambda:queue)
+m = QueueManager(address=('adres_ip', nr_portu), authkey='abracadabra')
+s = m.get_server()
+s.serve_forever()
+klient1:
+
+from multiprocessing.managers import BaseManager
+
+class QueueManager(BaseManager): 
+    pass
+
+QueueManager.register('get_queue')
+m = QueueManager(address=('adres_ip', nr_portu), authkey='abracadabra')
+m.connect()
+queue = m.get_queue()
+queue.put('hello')
+klient2:
+
+from multiprocessing.managers import BaseManager
+
+class QueueManager(BaseManager):
+    pass
+
+QueueManager.register('get_queue')
+m = QueueManager(address=('adres_ip', nr_portu), authkey='abracadabra')
+m.connect()
+queue = m.get_queue()
+print queue.get()
+1.	AA.dat.zip (5296,0 kb)	Z. Krawczyk, 16.03.2019 23:26	
+2.	mult_for_students.py (0,7 kb)	Z. Krawczyk, 16.03.2019 23:27	
+3.	my_server.py (0,5 kb)	Z. Krawczyk, 16.03.2019 23:27	
+4.	X.dat (10,4 kb)	Z. Krawczyk, 16.03.2019 23:27	
+   
+[Lab] Ćwiczenie 4 - OpenMP Ostatnia modyfikacja: Z. Krawczyk 23.02.2022 17:29
+Proszę zrównoleglić przy pomocy OpenMP program poszukujący liczb pierwszych. Sekwencyjny kod programu jest dostępny w załączniku do zadania.
+Opis programu sekwencyjnego:
+Program znajduje liczby pierwsze z przedziału [2..n].
+Program do znajdowania liczb pierwszych korzysta z obserwacji, że do wyznaczania liczb pierwszych z przedziału B = [floor[sqrt(n)]+1..n] wystarczy znajomość liczb pierwszych z przedziału A = [2...floor[sqrt(n)]]. Każda liczba złożona należąca do przedziału B dzieli się przez jedną lub więcej liczb pierwszych z przedziału A. Liczby z przedziału A nazwijmy podzielnikami.
+Aby sprawdzić czy dowolna liczba j z przedziału B jest złożona, wystarczy sprawdzić czy dzieli się bez reszty przez któryś z podzielników.
+np. Jeśli chcemy znaleźć liczby pierwsze z przedziału [2... 10 000], to najpierw znajdujemy liczby pierwsze z przedziału [2..100] stosując np. sito Eratostenesa. Podzielników takich jest 25 ( liczby: 2,3, 5.. 97). Nastepnie dla dowolnej liczby j nalezącej do B nalezy sprawdzić czy dzieli się przez któryś z podzielników.
+Program składa się z dwóch faz:
+
+Wylicza liczby pierwsze z przedziału A = 2..floor[sqrt(n)] zwane podzielnikami stosując sito Eratostenesa.
+Poszukuje liczb pierwszych w przedziale B = [floor[sqrt(n)]+1..n]. Dowolna liczba j należąca do B jest liczbą pierwszą jeśli nie dzieli się bez reszty przez żaden z podzielników z przedziału A.
+Zadanie:
+Proszę zrówoleglić wykonanie programu z wykorzystaniem OpenMP (na początku zastanówcie się Państwo które sekcje programu można zrównoleglić, co powinno zostać wykonane sekwencyjnie, gdzie powinna zostać użyta sekcja krytyczna)
+Proszę obliczyć czas wykonania programu sekwencyjnego i zrównoleglonengo (dla l. wątków 2-8) dla rozmiaru zadania n=10^5, n=10^6, n=10^7
+Dla zrównoleglonego programu dla rozmiaru zadania n=10^5, n=10^6, n=10^7 (dla l. wątków 2-8) proszę obliczyć przyspieszenie programu i jego efektywność (E(p,n) = S(p,n)/p).
+1.	critical.c - sekcja krytyczna (0,2 kb)	Z. Krawczyk, 4.04.2022 08:57	
+2.	hello.c - przyklad dyrektywy parallel (0,6 kb)	Z. Krawczyk, 4.04.2022 08:56	
+3.	liczbypierwsze.c (1,2 kb)	Z. Krawczyk, 14.04.2019 16:06	
+4.	petla_zrownoleglenie.c - przyklad zrównoleglenia pętli (0,4 kb)	Z. Krawczyk, 4.04.2022 08:57	
+ 
+MPI ćwiczenie wstępne Ostatnia modyfikacja: Z. Krawczyk 11.04.2022 01:03
+1.	MPI_przyklady.zip (5,3 kb)	Z. Krawczyk, 17.04.2024 16:42	
+2.	PRIR_mpi4py.ipynb (17,8 kb)	Z. Krawczyk, 11.04.2022 01:02	
+   
+[Lab] Ćwiczenie 5 - MPI (całkowanie - C) Ostatnia modyfikacja: Z. Krawczyk 13.04.2023 00:45
+(Pokaż treść...)
+   
+[Lab] Ćwiczenie 6 - Wzorce komunikacyjne MPI Ostatnia modyfikacja: Z. Krawczyk 11.04.2022 01:03
+(Pokaż treść...)
+1.	rys_1.png (46,3 kb)	Z. Krawczyk, 31.03.2019 16:21	
+2.	rys_2.png (31,4 kb)	Z. Krawczyk, 31.03.2019 16:21	
+   
+Projekty końcowe - przykładowe tematy Ostatnia modyfikacja: Z. Krawczyk 11.04.2022 01:03
+(Pokaż treść...)
+   
+Tematy projektów końcowych 2024L (GR2 | GR4) Ostatnia modyfikacja: P. Zawadzki 6.06.2024 10:51
+(Pokaż treść...)
+ 
+Slajdy z wykładów Ostatnia modyfikacja: P. Zawadzki 30.04.2024 17:52
+1.	gpu_cuda_acc_10_small.pdf (3194,7 kb)	J. Starzyński, 30.05.2019 16:48	
+2.	OpenACC_Introduction_To_OpenACC.pdf (2682,5 kb)	J. Starzyński, 30.05.2019 16:49	
+3.	proc.zip - Przykład z wykładu nr 3 (9,8 kb)	Z. Krawczyk, 10.03.2020 14:00	
+4.	w1.pdf (973,8 kb)	J. Starzyński, 30.05.2019 16:45	
+5.	wyklad2.pdf (1226,6 kb)	J. Starzyński, 30.05.2019 16:46	
+6.	wyklad3.pdf (394,0 kb)	J. Starzyński, 30.05.2019 16:46	
+7.	wyklad4.pdf (295,0 kb)	J. Starzyński, 30.05.2019 16:46	
+8.	wyklad5.pdf (3136,3 kb)	J. Starzyński, 30.05.2019 16:46	
+9.	wyklad6.pdf (347,1 kb)	J. Starzyński, 30.05.2019 16:46	
+10.	wyklad7.pdf (1422,4 kb)	J. Starzyński, 30.05.2019 16:46	
+11.	wyklad8.pdf (5858,0 kb)	J. Starzyński, 30.05.2019 16:47	
+ 
+Materiały do wykładów prowadzonych zdalnie Ostatnia modyfikacja: P. Zawadzki 30.04.2024 17:52
+1.	PRIR_python_java.pdf (19789,3 kb)	Z. Krawczyk, 16.03.2020 23:50	
+   
+[Lab] Ćwiczenie 7 -- CUDA Ostatnia modyfikacja: P. Zawadzki 13.05.2024 13:28
+(Pokaż treść...)
+1.	matrix-multiplication.cu (6,1 kb)	P. Zawadzki, 13.05.2024 12:35	
+2.	transpose.cu (11,1 kb)	P. Zawadzki, 13.05.2024 12:35	
+Informacje z karty przedmiotu:
+(Poniższe dane możliwe są do edycji tylko w karcie przedmiotu przez kierownika przedmiotu.)
+Cel przedmiotu:
+Podstawy obliczeń równoległych i rozproszonych: sprzęt, narzędzia programistyczne, wprowadzenie do tworzenia aplikacji internetowych, algorytmy równoległe. Modele programowania równoległego, architektury maszyn równoległych, projektowanie algorytmów równoległych, programowanie na maszynach z pamięcią współdzieloną, programowanie na maszynach z pamięcią rozproszoną, wykorzystanie środowisk heterogenicznych CPU+GPGPU, narzędzia do obiektowego programowania rozproszonego.
+Celem kursu jest przygotowanie studenta do programowania wykorzystującego w pełni możliwości nowoczesnego sprzętu: wielordzeniowość, masywną równoległość, sieci komputerowe.
