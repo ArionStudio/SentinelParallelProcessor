@@ -1,0 +1,83 @@
+
+% !TeX program = pdflatex
+\documentclass[12pt,a4paper]{article}
+
+% Essential packages
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[polish]{babel}  % For Polish language support
+\usepackage{amsmath}
+% \usepackage{amsfonts} % Not strictly needed for this simplified version
+% \usepackage{amssymb} % Not strictly needed for this simplified version
+% \usepackage{graphicx} % Not strictly needed for this simplified version
+\usepackage{hyperref}
+% \usepackage{listings} % Not strictly needed for this simplified version
+\usepackage{xcolor}
+\usepackage{geometry}
+% \usepackage{enumitem} % Not strictly needed for this simplified version
+\usepackage{booktabs} % For better tables
+\usepackage{float}    % For table placement
+\usepackage{array}    % For more complex table column definitions
+
+% Document settings
+\geometry{
+    a4paper,
+    margin=2.5cm
+}
+
+% Hyperref settings
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,
+    urlcolor=cyan,
+    pdftitle={Specyfikacja Projektu: Równoległy System Analizy Roślinności Sentinel-2},
+    pdfauthor={Adrian Rybaczuk, Bartosz Cylwik},
+    pdfsubject={Przetwarzanie Rozproszone i Równoległe},
+    pdfkeywords={Sentinel-2, NDVI, NDMI, Przetwarzanie Równoległe, Python, GUI}
+}
+
+% Title information
+\title{Specyfikacja Projektu: Równoległy System Analizy Roślinności Sentinel-2}
+\author{Adrian Rybaczuk 318483, Bartosz Cylwik 325457}
+\date{\today}
+
+\begin{document}
+\selectlanguage{polish} % Set language to Polish
+\maketitle
+
+\begin{abstract}
+\noindent Niniejszy dokument przedstawia specyfikację projektu systemu desktopowego do analizy roślinności z wykorzystaniem danych satelitarnych Sentinel-2. Głównym celem jest implementacja mechanizmu obliczania wskaźników NDVI i NDMI z zastosowaniem technik przetwarzania równoległego w celu optymalizacji wydajności. Projekt obejmuje również stworzenie interfejsu graficznego użytkownika (GUI) do interakcji z systemem.
+\end{abstract}
+
+
+\section*{Wybrane Technologie}
+\label{sec:technologies}
+Poniższa tabela przedstawia wybrane technologie wraz z ich głównym zastosowaniem w projekcie.
+
+\begin{table}[H]
+    \centering
+    \caption{Wybrane technologie i ich zastosowanie.}
+    \label{tab:technologies}
+    \begin{tabular}{>{\raggedright\arraybackslash}p{0.4\textwidth} >{\raggedright\arraybackslash}p{0.5\textwidth}}
+        \toprule
+        \textbf{Technologia} & \textbf{Zastosowanie w Projekcie} \\
+        \midrule
+        Język Programowania: Python & Główny język implementacji logiki aplikacji, obliczeń i GUI. \\
+        \addlinespace
+        Przetwarzanie Równoległe: \texttt{multiprocessing} (Python) & Równoległe wykonywanie obliczeń indeksów NDVI/NDMI na wielu rdzeniach CPU. \\
+        \addlinespace
+        Przetwarzanie Danych Geoprzestrzennych: Rasterio (z GDAL) & Odczyt, zapis i podstawowe operacje na danych rastrowych Sentinel-2 (format GeoTIFF). \\
+        \addlinespace
+        Obliczenia Numeryczne: NumPy & Wydajne operacje na tablicach (pikselach obrazów) podczas obliczania indeksów. \\
+        \addlinespace
+        Interfejs Graficzny Użytkownika (GUI): PyQt6 (lub Tkinter) & Tworzenie interaktywnego interfejsu dla użytkownika (wczytywanie danych, wybór AOI, wizualizacja). \\
+        \addlinespace
+        Wizualizacja Danych: Matplotlib & Wyświetlanie przetworzonych map NDVI/NDMI w interfejsie graficznym. \\
+        \addlinespace
+        Format Danych Wyjściowych: GeoTIFF & Standardowy format zapisu przetworzonych map geoprzestrzennych. \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\end{document}
