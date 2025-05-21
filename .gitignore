@@ -77,6 +77,27 @@ target/
 
 # Jupyter Notebook
 .ipynb_checkpoints
+# LaTeX temporary files
+*.aux
+*.log
+*.toc
+*.lof
+*.lot
+*.fls
+*.out
+*.synctex.gz
+*.bbl
+*.blg
+*.run.xml
+*.bcf
+*.run.xml
+*.xml
+*.gz
+*.gz.part
+*.gz.part.1
+
+
+
 
 # IPython
 profile_default/
