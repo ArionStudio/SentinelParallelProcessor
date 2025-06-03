@@ -1,0 +1,3 @@
+"""
+Sentinel Parallel Processor package
+""" 
