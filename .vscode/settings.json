@@ -127,5 +127,10 @@
   "latex-workshop.latex.autoBuild.interval": 0,
   "latex-workshop.latex.recipe.default": "pdflatex -> biber -> pdflatex*2",
   "latex-workshop.message.error.show": false,
-  "latex-workshop.message.warning.show": false
+  "latex-workshop.message.warning.show": false,
+  "files.exclude": {
+    "__pycache__": true,
+    "**/__init__.py": true
+  },
+  "explorer.excludeGitIgnore": true
 }
