@@ -1,0 +1,216 @@
+% !TeX program = pdflatex
+\documentclass[12pt,a4paper]{article}
+
+% Essential packages
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[polish]{babel}
+\usepackage{csquotes}
+\usepackage{amsmath}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{geometry}
+\usepackage{booktabs}
+\usepackage{float}  
+\usepackage{array}    
+\usepackage[backend=biber,style=numeric,sorting=none]{biblatex}
+\usepackage{graphicx}
+\usepackage{tocloft}  % For customizing table of contents
+\usepackage{enumitem} % For better list formatting
+
+\geometry{
+    a4paper,
+    margin=2.5cm
+}
+
+% Table of contents settings
+\renewcommand{\cftsecleader}{\cftdotfill{\cftdotsep}}
+\renewcommand{\cftsubsecleader}{\cftdotfill{\cftdotsep}}
+\setcounter{tocdepth}{2}  % Show sections and subsections in TOC
+\setcounter{secnumdepth}{2}  % Number sections and subsections
+
+% Hyperref settings
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,
+    urlcolor=cyan,
+    pdftitle={Raport końcowy: Równoległy System Analizy Roślinności Sentinel-2},
+    pdfauthor={Adrian Rybaczuk, Bartosz Cylwik},
+    pdfsubject={Przetwarzanie Rozproszone i Równoległe},
+    pdfkeywords={Sentinel-2, NDVI, NDMI, Przetwarzanie Równoległe, Python, GUI}
+}
+
+
+\title{Projekt zaliczeniowy\\\large Raport końcowy}
+\author{Zespół Projektowy nr 1 \\
+    \begin{tabular}{ll}
+        \textbf{Adrian Rybaczuk} & \textbf{318483} \\
+        \textbf{Bartek Cylwik} & \textbf{325457} \\
+    \end{tabular}
+}
+\date{\today}
+
+
+% Bibliography file
+\addbibresource{references.bib}
+\selectlanguage{polish} % Set language to Polish
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+  Niniejszy raport przedstawia podsumowanie projektu grupowego, systemu do równoległego przetwarzania obrazów satelitarnych Sentinel-2, umożliwiającego efektywną analizę zmian roślinności z wykorzystaniem wskaźników NDVI i NDMI oraz przyjaznego interfejsu graficznego.
+  \end{abstract}
+  
+
+\tableofcontents
+\newpage
+
+
+\section{Wprowadzenie}
+Celem projektu była implementacja (wraz z GUI) systemu równoległego / rozproszonego mechanizmu wyliczania indeksów wilgotności (NDMI) i wegetacji (NDVI) roślin na zobrazowaniach satelitarnych Sentinel-2 do stwierdzenia występowania lub zaniku roślinności na wskazanym obszarze.
+Na podstawie tak zdefiniowanego zadania mogliśmy wyznaczyć poszczególne elementy projektu do realizacji:
+\begin{itemize}
+    \item Uzyskanie wskaźników NDVI i NDMI
+    \begin{itemize}
+        \item Research na temat wskaźników NDVI i NDMI
+        \item Pobranie niezbędnych wskaźników z zobrazowania satelitarnego Sentinel-2
+        \item Zapisanie danych pobranych z API jako "cache" w celu uniknięcia ponownego pobierania danych
+        \item Identyfikacja potęcjalnych problemów związanych z przetwarzaniem danych
+        \item Przeprowadzenie obliczeń wskaźników
+    \end{itemize}
+    \item Interfejs graficzny
+    \begin{itemize}
+        \item Ekran uwierzytelniania z API Sentinel-Hub
+        \item Ekran pozwalający na wybór zakresu czasowego oraz obszaru analizy
+        \item Ekran z wynikami analizy w postaci mapy z zaznaczonymi obszarami roślinności
+    \end{itemize}
+    \item Równoległe przetwarzanie
+    \begin{itemize}
+        \item Wybranie obszarów programu wymagających przetworzenia równoległego / rozproszonego
+        \item Wybranie pomiedzy przetwarzaniem na CPU a GPU
+        \item Implementacja mechanizmu równoległego / rozproszonego przetwarzania
+    \end{itemize}
+    \item Wybranie technologi do realizacji projektu
+\end{itemize}
+
+\newpage
+
+\section{Kroki podjęte na początku pracy}
+
+\subsection{Research wskaźników NDVI i NDMI}
+
+Aby uzyskać wskaźniki NDVI i NDMI, rozpoczęliśmy od analizy literatury i dokumentacji dotyczącej tych indeksów, przechodząc od ogólnych informacji do szczegółowych aspektów ich wyznaczania.
+
+\textbf{NDVI} (Normalized Difference Vegetation Index) \cite{ndvi_docs} jest prostym wskaźnikiem ilościowym służącym do klasyfikacji wegetacji roślin. Jego wartość mieści się w przedziale od $-1$ do $1$:
+\begin{itemize}
+    \item Wartości ujemne (zbliżone do $0$) wskazują na obecność wody.
+    \item Zakres $-0.1$ do $0.1$ odpowiada obszarom jałowym (skały, piasek, śnieg).
+    \item Przedział $0.2$ do $0.4$ oznacza niską roślinność (zarośla, łąki).
+    \item Wysokie wartości (bliskie $1$) wskazują na bujną roślinność (np. lasy deszczowe).
+\end{itemize}
+
+Dzięki temu NDVI jest dobrym wskaźnikiem obecności i kondycji roślinności na danym obszarze.
+
+Wskaźnik NDVI definiuje się wzorem:
+\[
+\mathrm{NDVI} = \mathrm{Index}(\mathrm{NIR}, \mathrm{RED}) = \frac{\mathrm{NIR} - \mathrm{RED}}{\mathrm{NIR} + \mathrm{RED}}
+\]
+
+W przypadku danych Sentinel-2, indeks ten wyznaczamy na podstawie kanałów B8 (NIR) i B4 (RED):
+\[
+\mathrm{NDVI} = \mathrm{Index}(\mathrm{B8}, \mathrm{B4}) = \frac{\mathrm{B8} - \mathrm{B4}}{\mathrm{B8} + \mathrm{B4}}
+\]
+
+\textbf{NDMI} (Normalized Difference Moisture Index) \cite{ndmi_docs} jest znormalizowanym wskaźnikiem wilgotności który do wyznaczenia wilgotności wykorzystuje pasma NIR i SWIR.
+\begin{itemize}
+    \item Wartosci ujemne (zblizone do -1) wskazuja na bardzo suche obszary (brak roslnosci, pustynia, obszary zabudowane)
+    \item Wartosci od -0.2 do 0.2 wskazuja na glebe wysychającą (rzadka trawa, trawy wysychające, krzewy w stanie stresu wodnego)
+    \item Wartosci ponizej do 0.2 do 0.4 odpowiadaja umiarkowanemu nawodnieniu (trawy, pastwiska)
+    \item Wartosci od 0.4  Wskazują na obszary o zdrowy stan nawodnienia (uprawy w pełni sezonu wegetacyjnego, lasy liściaste w strefie umiarkowanej) 
+    \item Wartosci powyzej 0.4 wskazuja na obszary o wysokiej wilgotnosci (lasy deszczowe, obszary podmokłe)
+\end{itemize}
+
+Wskaźnik NDMI definiujemy wzorem:
+\[
+\mathrm{NDMI} = \mathrm{Index}(\mathrm{NIR}, \mathrm{SWIR}) = \frac{\mathrm{NIR} - \mathrm{SWIR}}{\mathrm{NIR} + \mathrm{SWIR}}
+\]
+
+W przypadku danych Sentinel-2, indeks ten wyznaczamy na podstawie kanałów B8 (NIR) i B11 (SWIR):
+\[
+\mathrm{NDMI} = \mathrm{Index}(\mathrm{B8}, \mathrm{B11}) = \frac{\mathrm{B8} - \mathrm{B11}}{\mathrm{B8} + \mathrm{B11}}
+\]
+
+\subsection{RED, NIR, SWIR czyli B4, B8, B11}
+
+\textbf{RED} to czerwony kanał światła, silnie odbijany przez martwe liście. Wykorzystuje się go do identyfikacji typów roślinności, gleb oraz obszarów zabudowanych. Charakteryzuje się ograniczoną penetracją w wodzie i słabym odbiciem od liści zawierających chlorofil (żywe liście).
+
+W satelitach Sentinel-2 kanał RED odpowiada pasmu B4: \cite{sentinel2_band_B4}
+\begin{itemize}
+    \item Rozdzielczość: 10 m/px
+    \item Centralna długość fali: 665 nm
+    \item Szerokość pasma: 30 nm
+\end{itemize}
+
+\textbf{NIR} (Near Infrared) to bliska podczerwień, która dobrze obrazuje linie brzegowe oraz zawartość biomasy.
+
+W Sentinel-2 kanał NIR odpowiada pasmu B8: \cite{sentinel2_band_B8}
+\begin{itemize}
+    \item Rozdzielczość: 10 m/px
+    \item Centralna długość fali: 842 nm
+    \item Szerokość pasma: 115 nm
+\end{itemize}
+
+\textbf{SWIR} (Short-Wave Infrared) jest to fala wysokowrażliwa na zawartosć wody w obiektach. Dlatego jest dobrym wskaźnikiem wilgotności w 
+
+W Sentinel-2 kanał SWIR odpowiada pasmu B11: \cite{sentinel2_band_B11}
+\begin{itemize}
+    \item Rozdzielczość: 20 m/px
+    \item Centralna długość fali: 1610 nm
+    \item Szerokość pasma: 130 nm
+\end{itemize}
+
+Istotną dla nas informacją na temat pasm dostarczanych przez Sentinel-2 jest rozdzielczość. Możemy zauważyć różnice w rozdzielczości między kanałami NIR i SWIR. W związku z tym musimy dokońać przeskalowania jednej z tych rozdzielczości do rozdzielczości drugiej.
+
+\subsection{Przeskalowanie NIR do rozdzielczości SWIR}
+Ponieważ kanały NIR i SWIR w Sentinel-2 mają różne rozdzielczości przestrzenne, przed obliczeniem wskaźnika NDMI konieczne jest dopasowanie ich do wspólnej siatki. Aby uzyskać jak najlepszą jakość wynikowego wskaźnika, zdecydowaliśmy się przeskalować kanał NIR (B8, 10 m/px) do rozdzielczości kanału SWIR (B11, 20 m/px). 
+Wybraliśmy NIR ponieważ przy jego downscalingu uzyskamy dokładniejsze wyniki.
+Do tego celu zastosowaliśmy metodę "area-based resampling" \cite{area_based_resampling}, która pozwala na bezpieczne zmniejszenie rozdzielczości obrazu przy zachowaniu reprezentatywności wartości pikseli.
+
+Metoda ta polega na uśrednianiu wartości pikseli z obrazu o wyższej rozdzielczości, aby uzyskać odpowiadający im piksel w obrazie o niższej rozdzielczości. Matematycznie można to zapisać następująco:
+\[
+D_{i,j} = \frac{1}{4} \sum_{m=0}^{1} \sum_{n=0}^{1} I_{2i+m,\,2j+n}
+\]
+gdzie $D_{i,j}$ oznacza piksel w obrazie o niższej rozdzielczości, a $I_{2i+m,\,2j+n}$ to odpowiadające mu piksele w obrazie o wyższej rozdzielczości.
+
+\subsection{Następnym krokiem będzie uzyskanie dostępu do danych z Sentinel-2}
+
+Do tego celu skorzystaliśmy z API Sentinel-Hub. \cite{sentinel2_api_docs} 
+Udostępnia on dane z satelity poprzez API dopiero po uwierzytelnieniu. 
+W tym celu musielismy przejść przez process opisany tutaj \cite{sentinel2_api_docs_auth}.
+Po jego przejsciu mamy dostep do Client ID oraz Client Secret które wykorzystamy do połączenia się z API.
+
+API posiada reate limiting które są w miare restrykcyjne. \cite{sentinel2_api_auth_rate_limiting}
+Z tego też powodu zamierzamy wykorzystać cache do przechowywania pobranych już danych.
+Z natury projektu i dania sobie możliwości testowania wyników zamierzamy przechowywać nieprzetworzone dane zamiast obliczonych już wyników.
+Pomoże nam to przeprowadzić testy i wprowadzić poprawki w przyszłości.
+
+
+
+\section{Przebieg procesu w aplikacji}
+\section{Równoległe przetwarzanie}
+\subsection{Które obliczenia i dlaczego postanowilismy zrownoleglic / rozproszyc}
+\subsection{Jak dokonaliśmy zrownoleglenia obliczeń}
+\subsection{Jakie wyniki uzyskaliśmy}
+% miejsce na wykresy i statystyki
+% miejsce na testy i benchmarki
+
+\subsection{Kiedy przyspieszenie ma sens, a kiedy nie ma}
+\subsection{Jakie wnioski można wyciągnąć z uzyskanych wyników}
+
+\section{Interpretacja i wnioski}
+
+\printbibliography[heading=bibintoc]
+
+\end{document}
