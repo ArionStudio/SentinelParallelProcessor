@@ -184,6 +184,14 @@ D_{i,j} = \frac{1}{4} \sum_{m=0}^{1} \sum_{n=0}^{1} I_{2i+m,\,2j+n}
 \]
 gdzie $D_{i,j}$ oznacza piksel w obrazie o niższej rozdzielczości, a $I_{2i+m,\,2j+n}$ to odpowiadające mu piksele w obrazie o wyższej rozdzielczości.
 
+\subsection{Zrównoleglenie / rozproszenie obliczeń}
+
+W związku z tym że chcielibyśmy by aplikacja działała na jednym komputrze wybraliśmy scierzkę zrównoleglenia obliczeń.
+Następnym wyborem jest obliczenia wykonywane na CPU czy GPU.
+Zadanie polega głównie na wykonywaniu prostych obliczeń arytmetycznych dla poszczególnych pikseli.
+Operacje są powtarzalne oraz wykonywane niezależnie od siebie.
+W związku z tym lepszą opcją będzie wykonanie obliczeń przy urzyciu GPU.
+
 \subsection{Następnym krokiem będzie uzyskanie dostępu do danych z Sentinel-2}
 
 Do tego celu skorzystaliśmy z API Sentinel-Hub. \cite{sentinel2_api_docs} 
@@ -195,6 +203,17 @@ API posiada reate limiting które są w miare restrykcyjne. \cite{sentinel2_api_
 Z tego też powodu zamierzamy wykorzystać cache do przechowywania pobranych już danych.
 Z natury projektu i dania sobie możliwości testowania wyników zamierzamy przechowywać nieprzetworzone dane zamiast obliczonych już wyników.
 Pomoże nam to przeprowadzić testy i wprowadzić poprawki w przyszłości.
+
+\subsection{Wybór technologii}
+
+Jako że określiliśmy już dokładniej ramy projektu możemy potwierdzić wybrane przez nas technologie. 
+Ogólny język implementacji to Python.
+Do pobierania danych z api wykorzystaliśmy bibliotekę SentinelHub. Która udosptępnia już gotowe funkcje pozwalające zautoryzować się z api oraz pobrać dane.
+Do gui wykorzystaliśmy Tkinter podstawową i dosyć prostą bibliotekę do tworzenia interfejsu graficznego.
+Do prezentacji mapy wykorzystaliśmy TkinterMapView.
+Do zrównoleglenia obliczeń skorzystamy z Taichi Lang \cite{taichi_lang_docs} którego zaembedujemy w pythonie.
+Jest to język programowania osadzony w pythonnie stworzony do wysokowydajnych obliczeń.
+Jego zaletą jest to że kod napisany raz przekąpiluje się na wiele różnych platform.
 
 
 

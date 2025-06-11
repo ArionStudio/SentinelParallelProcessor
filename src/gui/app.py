@@ -3,16 +3,16 @@ from tkinter import ttk
 from typing import Type, Dict, Any, TYPE_CHECKING
 
 # --- Core Component Imports ---
-# We import the client for type hinting purposes.
-from src.core.auth.api_auth import SentinelHubClient
+# We now import SHConfig for type hinting and SentinelDataLoader to instantiate it.
+from sentinelhub import SHConfig
+from src.core.data_loader.data_loader import SentinelDataLoader
 
 # --- GUI View Imports ---
 from src.gui.views.login_view import LoginView
 from src.gui.views.map_view import MapView
 from src.gui.views.api_processing_view import ApiProcessingView
 
-# Use TYPE_CHECKING to avoid circular import errors at runtime,
-# while still allowing type checkers (like mypy) to work.
+# Use TYPE_CHECKING to avoid circular import errors at runtime
 if TYPE_CHECKING:
     from src.gui.app import MainApplication
 
@@ -30,20 +30,18 @@ class MainApplication(ttk.Frame):
         self.root.geometry("1200x800")
         self._center_window()
 
-        # Configure the root window to make the MainApplication frame expand
         self.grid(row=0, column=0, sticky="nsew")
         self.root.grid_rowconfigure(0, weight=1)
         self.root.grid_columnconfigure(0, weight=1)
 
         # --- State Management ---
-        # The controller owns the shared state, like the authenticated client.
-        self.api_client: SentinelHubClient | None = None
+        # The controller now stores the validated SHConfig object.
+        self.sh_config: SHConfig | None = None
 
         # --- View Management ---
         self.views: Dict[Type[ttk.Frame], ttk.Frame] = {}
         self._current_view: ttk.Frame | None = None
 
-        # Start the application by showing the login view
         self._switch_view(LoginView)
 
     def _center_window(self):
@@ -66,14 +64,10 @@ class MainApplication(ttk.Frame):
             self._current_view.grid_forget()
 
         view = self.views.get(view_class)
-
         if view is None:
-            # Create the view, passing 'self' as the controller.
-            # This is how views get a reference back to MainApplication.
             view = view_class(self, **kwargs)
             self.views[view_class] = view
 
-        # Place the new view in the grid and make it expand
         view.grid(row=0, column=0, sticky="nsew")
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
@@ -81,32 +75,40 @@ class MainApplication(ttk.Frame):
 
     # --- Callback Methods (The "Controller" Logic) ---
 
-    def on_login_success(self, api_client: SentinelHubClient):
+    def on_login_success(self, config: SHConfig):
         """
-        Callback for when login is successful. Stores the authenticated
-        client and switches to the MapView.
+        Callback for when login is successful. Stores the validated SHConfig
+        object and switches to the MapView.
 
         Args:
-            api_client: The fully authenticated SentinelHubClient instance.
+            config: The validated SHConfig instance from SentinelHubAuthenticator.
         """
-        print("Controller: Login successful. Storing API client.")
-        self.api_client = api_client  # Store the shared state
-        self._switch_view(MapView)
+        print("Controller: Login successful. Storing SHConfig.")
+        self.sh_config = config  # Store the validated config
+
+        # Create the data loader instance using the validated config
+        data_loader = SentinelDataLoader(config=self.sh_config)
+
+        # Switch to the MapView and pass it the data_loader instance
+        self._switch_view(MapView, data_loader=data_loader)
 
     def on_bbox_selected(self, bbox: tuple):
         """
-        Callback for when a BBOX is selected on the map. Switches to the
-        ApiProcessingView, passing it the required data.
+        Callback for when a BBOX is selected on the map. Creates the data
+        loader and switches to the ApiProcessingView.
         """
         print(f"Controller: BBOX selected {bbox}. Switching to Processing View.")
-        if not self.api_client:
-            print("Error: API client not available. Returning to login.")
+        if not self.sh_config:
+            print("Error: SHConfig not available. Returning to login.")
             self._switch_view(LoginView)
             return
 
-        # Pass the required state (api_client and bbox) to the new view
+        # Create the data loader instance using the stored config
+        data_loader = SentinelDataLoader(config=self.sh_config)
+
+        # Pass the BBOX and the ready-to-use data_loader to the view
         self._switch_view(
-            ApiProcessingView, bbox=bbox, api_client=self.api_client
+            ApiProcessingView, bbox=bbox, data_loader=data_loader
         )
 
     def show_map_view(self):
@@ -121,8 +123,6 @@ class MainApplication(ttk.Frame):
 
 if __name__ == "__main__":
     # This entry point now launches the fully integrated application.
-    # Ensure your other view classes (MapView, ApiProcessingView) are
-    # updated to accept `controller` as their first argument.
     root = tk.Tk()
     app = MainApplication(root)
     app.run()

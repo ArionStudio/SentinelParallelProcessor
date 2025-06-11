@@ -11,18 +11,11 @@ class SentinelHubAuthenticator:
     """
     Handles the creation and validation of a Sentinel Hub configuration object
     using credentials from a secure manager.
-
-    This class replaces the manual OAuth2 flow. The sentinelhub-py library's
-    SHConfig object manages authentication tokens internally for all API calls.
     """
 
     def __init__(self, credentials_manager: CredentialsManager):
         """
         Initializes the authenticator with a credentials manager.
-
-        Args:
-            credentials_manager: An instance of CredentialsManager to load
-                                 API credentials.
         """
         self.credentials_manager = credentials_manager
 
@@ -30,40 +23,39 @@ class SentinelHubAuthenticator:
         """
         Loads credentials, creates a SHConfig object, and tests it by making
         a simple API call to verify the credentials are valid.
-
-        Args:
-            password: The password to decrypt the stored credentials.
-
-        Returns:
-            A validated SHConfig object on success, None on failure.
         """
-        print("Authenticator: Attempting to load credentials...")
+        print("Authenticator: Attempting to load and decrypt credentials...")
         credentials = self.credentials_manager.load_credentials(password)
 
-        if not credentials or not self.credentials_manager.validate_credentials(
-            credentials
-        ):
-            print("Authentication failed: Could not load or validate credentials.")
+        # This is the most likely point of failure. If the password is wrong,
+        # `credentials` will be None.
+        if not credentials:
+            print("❌ Authenticator: Failed to load/decrypt credentials. Is the password correct?")
             return None
 
-        print("Authenticator: Credentials loaded. Creating and testing configuration...")
+        print(f"✅ Authenticator: Credentials decrypted successfully for client_id: ...{credentials.client_id[-4:]}")
+
+        if not self.credentials_manager.validate_credentials(credentials):
+            print("❌ Authenticator: Decrypted credentials are not valid (e.g., empty fields).")
+            return None
+
+        print("Authenticator: Creating and testing configuration...")
         try:
             # 1. Create the SHConfig object
             config = SHConfig()
             config.sh_client_id = credentials.client_id
             config.sh_client_secret = credentials.client_secret
 
-            # 2. Test the configuration by making a real, low-cost API call.
-            # Fetching the list of data collections is a perfect way to verify
-            # that the client_id and client_secret are correct.
-            # If they are wrong, this line will raise an exception.
-            SentinelHubCatalog(config=config).get_collection_list()
+            # 2. Test the configuration with the CORRECTED method call
+            # This will raise an exception if the credentials are bad.
+            catalog = SentinelHubCatalog(config=config)
+            catalog.get_collections() # CORRECTED METHOD NAME
 
-            print("Authenticator: Authentication successful. Configuration is valid.")
-            # 3. Return the validated config object
+            print("✅ Authenticator: API test successful. Configuration is valid.")
             return config
 
         except Exception as e:
-            # This will catch download errors, auth errors (401), etc.
-            print(f"Authentication failed during API test: {e}")
+            # This will now only catch genuine API or network errors.
+            print(f"❌ Authenticator: API test failed. The credentials might be wrong despite successful decryption.")
+            print(f"   Error details: {e}")
             return None

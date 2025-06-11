@@ -5,7 +5,8 @@ import os
 
 from src.gui.widgets.login_form import LoginForm
 from src.core.auth.credentials_manager import CredentialsManager, Credentials
-from src.core.auth.api_auth import SentinelHubClient  # NEW: Import the client
+from src.core.auth.api_auth import SentinelHubAuthenticator
+from sentinelhub import SHConfig
 
 # To avoid circular imports for type hinting
 if TYPE_CHECKING:
@@ -15,7 +16,7 @@ if TYPE_CHECKING:
 class LoginView(ttk.Frame):
     def __init__(self, controller: "MainApplication", **kwargs):
         super().__init__(controller, padding=20, **kwargs)
-        self.controller = controller  # CHANGED: Store the controller
+        self.controller = controller
         self.credentials_manager = CredentialsManager()
 
         # Configure grid for centering the form
@@ -24,9 +25,9 @@ class LoginView(ttk.Frame):
 
         # Create login form
         self.login_form = LoginForm(self, on_login=self._handle_login_attempt)
-        self.login_form.grid(row=0, column=0)  # Don't use sticky for centering
+        self.login_form.grid(row=0, column=0)
 
-        # A frame for the clear button, so it doesn't affect form centering
+        # A frame for the clear button
         self.button_frame = ttk.Frame(self)
         self.button_frame.grid(row=1, column=0, pady=10)
 
@@ -42,7 +43,6 @@ class LoginView(ttk.Frame):
     def _show_password_screen(self):
         """Show screen with password field only."""
         self.login_form.show_password_only()
-        # Add a clear button to reset credentials
         ttk.Button(
             self.button_frame, text="Clear Credentials", command=self._clear_credentials
         ).pack()
@@ -50,7 +50,6 @@ class LoginView(ttk.Frame):
     def _show_full_credentials_screen(self):
         """Show screen with all credential fields."""
         self.login_form.show_all_fields()
-        # Clear any widgets that might be in the button frame
         for widget in self.button_frame.winfo_children():
             widget.destroy()
 
@@ -70,13 +69,8 @@ class LoginView(ttk.Frame):
         Handles the login attempt by validating, authenticating with the API,
         and then calling the controller's success callback.
         """
-        # Step 1: Validate inputs and save/load credentials locally
-        if self.login_form.is_password_only_mode():
-            # In password-only mode, we don't need to save, just load.
-            # The load happens inside client.authenticate()
-            pass
-        else:
-            # In full mode, first save the credentials
+        # If in full credentials mode, first save the credentials
+        if not self.login_form.is_password_only_mode():
             credentials = Credentials(client_id=client_id, client_secret=client_secret)
             if not self.credentials_manager.validate_credentials(credentials):
                 messagebox.showerror("Input Error", "Please fill in all fields.")
@@ -85,13 +79,15 @@ class LoginView(ttk.Frame):
                 messagebox.showerror("Storage Error", "Failed to save credentials.")
                 return
 
-        # Step 2: Authenticate with the Sentinel Hub API
+        # Authenticate using the new SentinelHubAuthenticator
         try:
-            api_client = SentinelHubClient(self.credentials_manager)
-            if api_client.authenticate(password):
+            authenticator = SentinelHubAuthenticator(self.credentials_manager)
+            validated_config: SHConfig | None = authenticator.authenticate(password)
+
+            if validated_config:
                 messagebox.showinfo("Success", "Authentication successful!")
-                # Step 3: Pass the authenticated client back to the controller
-                self.controller.on_login_success(api_client)
+                # Pass the validated config object back to the controller
+                self.controller.on_login_success(validated_config)
             else:
                 messagebox.showerror(
                     "Authentication Failed",

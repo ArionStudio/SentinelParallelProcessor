@@ -1,7 +1,7 @@
-requests-oauthlib
-tkinter>=8.6
-cryptography>=41.0.0
-python-dotenv>=1.0.0
+tkintermapview
+cryptography
+python-dotenv
 rasterio
-tkintermapview>=1.26
+tkintermapview
 sentinelhub
+taichi
