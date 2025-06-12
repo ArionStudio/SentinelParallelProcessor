@@ -90,6 +90,8 @@ class TestView(ttk.Frame):
             error_label.pack()
 
     def display_results(self, figures: List[plt.Figure], descriptions: List[str]):
+        if not self.winfo_exists():
+            return
         self.clear_results()
         self.plot_photos = []
 

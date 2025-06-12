@@ -15,10 +15,19 @@ def _get_index_properties(index_type: str) -> Dict[str, Any]:
     kolory, granice przedziałów i etykiety opisowe.
     """
     if index_type == "NDVI":
+        # ZMIANA: Nowa paleta kolorów od szarości/brązu do zieleni
         return {
             "colors": [
-                "#a50026", "#d73027", "#f46d43", "#fdae61", "#fee08b",
-                "#ffffbf", "#d9ef8b", "#a6d96a", "#66bd63", "#1a9850",
+                "#8c510a",  # Ciemny brąz (woda/śnieg)
+                "#bf812d",  # Brąz
+                "#dfc27d",  # Jasny brąz/piaskowy
+                "#f6e8c3",  # Bardzo jasny piaskowy (goła ziemia)
+                "#c7e9c0",  # Bardzo blada zieleń
+                "#a1d99b",  # Blada zieleń
+                "#74c476",  # Jasna zieleń
+                "#41ab5d",  # Zieleń
+                "#238b45",  # Ciemna zieleń
+                "#005a32",  # Bardzo ciemna zieleń (gęsty las)
             ],
             "boundaries": [-1.0, -0.2, 0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1.0],
             "labels": {
@@ -72,7 +81,6 @@ def create_heatmap_image(
     props = _get_index_properties(index_type)
     colormap, norm = _create_discrete_cmap(props["colors"], props["boundaries"])
     
-    # Wartości NaN w index_data zostaną poprawnie obsłużone przez colormap
     rgba_image = colormap(norm(index_data))
 
     alpha_channel = np.full(index_data.shape, 1.0, dtype=np.float32)
@@ -91,14 +99,13 @@ def create_legend_image(
     colormap, norm = _create_discrete_cmap(props["colors"], props["boundaries"])
     
     fig = plt.Figure(figsize=(width / 100, 0.8), dpi=100)
-    fig.suptitle(props["title"], fontsize=10, y=1.0) # Tytuł legendy
-    ax = fig.add_axes([0.05, 0.4, 0.9, 0.15]) # Pozycjonowanie paska
+    fig.suptitle(props["title"], fontsize=10, y=1.0)
+    ax = fig.add_axes([0.05, 0.4, 0.9, 0.15])
 
     cbar = matplotlib.colorbar.ColorbarBase(
         ax, cmap=colormap, norm=norm, orientation="horizontal"
     )
     
-    # Ustawienie głównych i opisowych etykiet
     tick_locations = list(props["labels"].keys())
     cbar.set_ticks(tick_locations)
     cbar.set_ticklabels([props["labels"][t] for t in tick_locations])
@@ -108,7 +115,7 @@ def create_legend_image(
     fig.savefig(buf, format="png", transparent=True, bbox_inches='tight', pad_inches=0.1)
     buf.seek(0)
     img = Image.open(buf)
-    plt.close(fig) # Zamykamy figurę, aby nie zużywać pamięci
+    plt.close(fig)
     return ImageTk.PhotoImage(img)
 
 
@@ -132,7 +139,6 @@ def create_heatmap_figure(
 
     cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
     
-    # Ustawienie etykiet na pasku koloru w raporcie
     tick_locations = list(props["labels"].keys())
     cbar.set_ticks(tick_locations)
     cbar.set_ticklabels([f"{val}\n({desc})" for val, desc in props["labels"].items()])

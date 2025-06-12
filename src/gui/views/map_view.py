@@ -243,6 +243,8 @@ class MapView(ttk.Frame):
         return img
 
     def display_result(self, index_type: str):
+        if not self.winfo_exists():
+            return
         self.update_idletasks()
         target_w = self.map_widget.winfo_width()
         target_h = self.map_widget.winfo_height()
