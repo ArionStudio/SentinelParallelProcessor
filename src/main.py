@@ -1,9 +1,7 @@
 # main.py
 
 import matplotlib
-# ZMIANA: Ustawienie backendu Matplotlib PRZED importem pyplot
-# To kluczowe dla stabilności w aplikacjach GUI z wątkami.
-matplotlib.use("Agg")
+matplotlib.use("TkAgg")
 
 import tkinter as tk
 from src.gui.app import MainApplication
@@ -20,7 +18,5 @@ def main():
     root.mainloop()
 
 if __name__ == "__main__":
-    # freeze_support() jest potrzebne dla skompilowanych aplikacji (np. PyInstaller)
-    # na Windows i macOS.
     freeze_support()
     main()

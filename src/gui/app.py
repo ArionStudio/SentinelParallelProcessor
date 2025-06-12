@@ -52,10 +52,3 @@ class MainApplication(ttk.Frame):
 
     def run(self):
         self.root.mainloop()
-
-
-if __name__ == "__main__":
-    freeze_support()
-    root = tk.Tk()
-    app = MainApplication(root)
-    app.run()
