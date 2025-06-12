@@ -1,7 +1,7 @@
 # main.py
 
 import matplotlib
-matplotlib.use("TkAgg")
+matplotlib.use("Agg")
 
 import tkinter as tk
 from src.gui.app import MainApplication
