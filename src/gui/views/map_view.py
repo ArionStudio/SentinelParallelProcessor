@@ -5,9 +5,7 @@ from tkinter import ttk, messagebox
 import io
 import numpy as np
 from PIL import Image, ImageTk, ImageDraw, ImageFont
-import matplotlib.cm
-import matplotlib.colors
-import matplotlib.pyplot as plt
+# ZMIANA: Usunięto niepotrzebne importy matplotlib
 from typing import TYPE_CHECKING, Tuple
 from multiprocessing import cpu_count
 
@@ -16,8 +14,9 @@ from tkintermapview.utility_functions import osm_to_decimal
 from tkcalendar import DateEntry
 from pyproj import Geod
 
-# ZMIANA: Dodanie brakującego importu TestView
 from src.gui.views.test_view import TestView
+# ZMIANA: Dodano import nowego modułu wizualizacji
+from src.gui.utils import visualizer
 
 if TYPE_CHECKING:
     from src.gui.app import MainApplication
@@ -173,21 +172,7 @@ class MapView(ttk.Frame):
         self.set_fetch_button_state(True)
         self.set_status("Map moved. Click 'Fetch Data' to load new area.")
 
-    def _get_colormap_and_norm(self, index_type: str) -> Tuple[matplotlib.colors.Colormap, matplotlib.colors.Normalize]:
-        if index_type == "NDVI":
-            colors = ['#0c0c0c', '#505050', '#ccc682', '#91bf51', '#70a33f', '#4f892d', '#306d1c', '#0f540a', '#004400']
-            boundaries = [-1.0, -0.5, 0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 1.0]
-            cmap = matplotlib.colors.ListedColormap(colors)
-            norm = matplotlib.colors.BoundaryNorm(boundaries, cmap.N)
-            return cmap, norm
-        elif index_type == "NDMI":
-            colors = ['#a50026', '#d73027', '#f46d43', '#fee090', '#abd9e9', '#74add1', '#4575b4']
-            boundaries = [-1.0, -0.6, -0.2, 0.0, 0.2, 0.4, 0.6, 1.0]
-            cmap = matplotlib.colors.ListedColormap(colors)
-            norm = matplotlib.colors.BoundaryNorm(boundaries, cmap.N)
-            return cmap, norm
-        else:
-            return matplotlib.cm.get_cmap('viridis'), matplotlib.colors.Normalize(vmin=-1, vmax=1)
+    # ZMIANA: Usunięto metodę _get_colormap_and_norm. Logika jest teraz w visualizer.py
 
     def get_view_parameters(self):
         top_left, bottom_right, image_size, zoom = self._get_precise_view_data()
@@ -266,39 +251,21 @@ class MapView(ttk.Frame):
             display_image = self._resize_image_with_aspect_ratio(placeholder_img, (target_w, target_h))
             self.set_status(f"Calculation complete: No valid data found for {index_type}.")
         else:
-            heatmap = self.create_heatmap(self.controller.index_result, self.controller.result_mask, index_type)
+            # ZMIANA: Użycie funkcji z modułu visualizer
+            heatmap = visualizer.create_heatmap_image(self.controller.index_result, self.controller.result_mask, index_type)
             display_image = self._resize_image_with_aspect_ratio(heatmap, (target_w, target_h))
             self.set_status(f"{index_type} visualization complete!")
+        
         self.result_photo = ImageTk.PhotoImage(display_image)
         self.result_image_label.configure(image=self.result_photo)
+        
         legend_width = self.result_image_label.winfo_width()
         if legend_width > 10:
-            self.legend_photo = self.create_legend(index_type, width=legend_width)
+            # ZMIANA: Użycie funkcji z modułu visualizer
+            self.legend_photo = visualizer.create_legend_image(index_type, width=legend_width)
             self.legend_label.configure(image=self.legend_photo)
 
-    def create_heatmap(self, index_array: np.ndarray, mask_array: np.ndarray, index_type: str) -> Image.Image:
-        colormap, norm = self._get_colormap_and_norm(index_type)
-        rgba_image = colormap(norm(index_array))
-        alpha_channel = np.full(index_array.shape, 1.0, dtype=np.float32)
-        alpha_channel[mask_array == 0] = 0.0
-        rgba_image[:, :, 3] = alpha_channel
-        rgb_image_uint8 = (rgba_image * 255).astype(np.uint8)
-        return Image.fromarray(rgb_image_uint8, "RGBA")
-
-    def create_legend(self, index_type: str, width: int) -> ImageTk.PhotoImage:
-        colormap, norm = self._get_colormap_and_norm(index_type)
-        fig = plt.Figure(figsize=(width / 100, 0.6), dpi=100)
-        ax = fig.add_axes([0.05, 0.5, 0.9, 0.2])
-        cbar = matplotlib.colorbar.ColorbarBase(ax, cmap=colormap, norm=norm, orientation="horizontal")
-        if isinstance(norm, matplotlib.colors.BoundaryNorm):
-            cbar.set_ticks(norm.boundaries)
-            cbar.set_ticklabels([f'{b:.1f}' for b in norm.boundaries])
-        cbar.set_label(f"{index_type} Value")
-        buf = io.BytesIO()
-        fig.savefig(buf, format="png", transparent=True)
-        buf.seek(0)
-        img = Image.open(buf)
-        return ImageTk.PhotoImage(img)
+    # ZMIANA: Usunięto metody create_heatmap i create_legend. Logika jest teraz w visualizer.py
 
     def set_status(self, message: str):
         self.status_var.set(message)

@@ -15,6 +15,8 @@ from src.core.io.test_reader import load_test_results
 from src.core.processing.index_calculator import calculate_index as calculate_index_gpu
 from src.core.processing.cpu_index_calculator import calculate_index as calculate_index_cpu_multi
 from src.core.processing.cpu_single_thread_calculator import calculate_index as calculate_index_cpu_single
+# ZMIANA: Dodano import modułu wizualizacji
+from src.gui.utils import visualizer
 
 if TYPE_CHECKING:
     from src.gui.app import MainApplication
@@ -24,7 +26,6 @@ class TestController:
     TEST_DATA_DIR = "test_data/scaled"
     RESULTS_FILE = "test_results/full_report_results.json"
     MEMORY_RESULTS_FILE = "test_results/memory_results.json"
-    # ZMIANA: Nowa stała dla folderu z wykresami
     CHARTS_DIR = "report/charts"
     REPETITIONS = 5
     CPU_SCALABILITY_THREADS = sorted(list(set([1, 2, 4, 8, cpu_count()])))
@@ -33,7 +34,6 @@ class TestController:
     def __init__(self, app: "MainApplication"):
         self.app = app
         self.view: "TestView" | None = None
-        # ZMIANA: Tworzenie folderu na wykresy przy starcie
         os.makedirs(self.CHARTS_DIR, exist_ok=True)
 
     def set_view(self, view: "TestView"):
@@ -68,6 +68,7 @@ class TestController:
             self.view.update_progress(100, "No data found to generate a report.")
 
     def _run_tests_worker(self):
+        # ... (reszta metody bez zmian)
         try:
             self.app.after(0, self.view.update_progress, 0, "Preparing test environment...")
             test_files = sorted(
@@ -143,10 +144,10 @@ class TestController:
     def _generate_all_plots(self, time_results: Dict, memory_results: Dict) -> Tuple[List[plt.Figure], List[str]]:
         all_figures, all_descriptions = [], []
         
-        # Wykres 1: Przegląd wydajności
+        # Wykres 1: Przegląd wydajności (bez zmian)
         fig1, ax1 = plt.subplots(figsize=(10, 6))
         fig1.suptitle(f"Performance Overview ({self.STANDARD_TEST_SIZE}x{self.STANDARD_TEST_SIZE} data)", fontsize=16)
-        labels = ['GPU (Taichi)', 'CPU (1-Thread, NumPy)', f'CPU ({max(self.CPU_SCALABILITY_THREADS)}-Threads, SharedMem)']
+        labels = ['GPU (Taichi)', 'CPU (1-Thread, NumPy)', f'CPU ({max(self.CPU_SCALABILITY_THREADS)})-Threads, SharedMem)']
         ndvi_times = [np.mean(time_results['scalability']['NDVI'][str(self.STANDARD_TEST_SIZE)][l]) * 1000 for l in labels]
         ndmi_times = [np.mean(time_results['scalability']['NDMI'][str(self.STANDARD_TEST_SIZE)][l]) * 1000 for l in labels]
         x = np.arange(len(labels)); width = 0.35
@@ -156,7 +157,7 @@ class TestController:
         fig1.savefig(os.path.join(self.CHARTS_DIR, "01_performance_overview.png"), dpi=300)
         all_figures.append(fig1); all_descriptions.append("This chart provides the main performance overview. For a standard dataset, the optimized single-thread NumPy implementation is the fastest due to low overhead. The GPU is slower because of data transfer costs, and the parallel CPU is hampered by process management overhead.")
 
-        # Wykres 2: Skalowalność CPU
+        # Wykres 2: Skalowalność CPU (bez zmian)
         fig2, ax2 = plt.subplots(figsize=(10, 6))
         fig2.suptitle("CPU Parallelization Scalability", fontsize=16)
         cpu_times_ndvi = [np.mean(time_results['cpu_scaling']['NDVI'][f'{t}-Threads']) * 1000 for t in self.CPU_SCALABILITY_THREADS]
@@ -167,7 +168,8 @@ class TestController:
         fig2.savefig(os.path.join(self.CHARTS_DIR, "02_cpu_scalability.png"), dpi=300)
         all_figures.append(fig2); all_descriptions.append("This chart analyzes the parallel CPU performance. The blue line shows that adding more processes reduces execution time, proving the implementation scales. However, it also shows that the parallel version starts with a high time cost (overhead) and never becomes faster than the superior, non-parallel single-thread approach (gray line) for this task.")
 
-        # Wykres 3 i 4: Skalowalność vs. Rozmiar Danych
+        # Wykres 3 i 4: Skalowalność vs. Rozmiar Danych (bez zmian)
+        chart_num = 3
         for index_type in ["NDVI", "NDMI"]:
             fig, ax = plt.subplots(figsize=(12, 7))
             fig.suptitle(f"Performance Scalability vs. Data Size ({index_type})", fontsize=16)
@@ -178,20 +180,21 @@ class TestController:
                 avg_times = [np.mean(time_results['scalability'][index_type][str(s)][config_label]) * 1000 for s in sizes]
                 ax.plot(pixels, avg_times, marker='o', linestyle='-', label=config_label)
             ax.set_xlabel('Number of Pixels (Image Size)'); ax.set_ylabel('Average Time (ms)'); ax.set_xscale('log'); ax.set_yscale('log'); ax.legend(); ax.grid(True, which="both", ls="--")
-            fig.savefig(os.path.join(self.CHARTS_DIR, f"03_size_scalability_{index_type.lower()}.png"), dpi=300)
+            fig.savefig(os.path.join(self.CHARTS_DIR, f"{chart_num:02d}_size_scalability_{index_type.lower()}.png"), dpi=300)
             all_figures.append(fig); all_descriptions.append(f"This chart shows the 'break-even point' analysis for {index_type}. For small data sizes, the low-overhead single-thread CPU is fastest. As data size increases, the GPU's massive parallelism allows it to scale better. The point where the GPU line crosses the CPU line is the break-even point, beyond which the GPU becomes the superior choice.")
+            chart_num += 1
 
-        # Wykres 5: Narzut GPU
+        # Wykres 5: Narzut GPU (bez zmian)
         fig5, ax5 = plt.subplots(figsize=(10, 6))
         fig5.suptitle("GPU Overhead Analysis: First Run vs. Subsequent Runs", fontsize=16)
         gpu_times_raw = time_results['gpu_overhead']['NDVI']
         reps = np.arange(1, len(gpu_times_raw) + 1)
         bars = ax5.bar(reps, [t * 1000 for t in gpu_times_raw], color='#2ca02c')
         ax5.set_xlabel('Repetition Number'); ax5.set_ylabel('Execution Time (ms)'); ax5.set_xticks(reps); ax5.bar_label(bars, fmt='%.1f')
-        fig5.savefig(os.path.join(self.CHARTS_DIR, "04_gpu_overhead.png"), dpi=300)
+        fig5.savefig(os.path.join(self.CHARTS_DIR, "05_gpu_overhead.png"), dpi=300)
         all_figures.append(fig5); all_descriptions.append("This chart visualizes the 'warm-up' cost of the GPU. The first execution is significantly slower because the Just-In-Time (JIT) compiler (Taichi) needs to compile the Python code. Subsequent runs are much faster as they use the already compiled code, measuring mainly the data transfer and kernel execution time.")
 
-        # Wykres 6: Pamięć
+        # Wykres 6: Pamięć (bez zmian)
         if memory_results:
             fig6, ax6 = plt.subplots(figsize=(10, 6))
             fig6.suptitle("Peak Memory Usage (RAM) per Method", fontsize=16)
@@ -199,7 +202,19 @@ class TestController:
             mem_usages = list(memory_results.values())
             bars = ax6.bar(labels, mem_usages)
             ax6.set_ylabel('Peak Memory Usage (MiB)'); ax6.tick_params(axis='x', rotation=15); ax6.bar_label(bars, fmt='%.1f MiB')
-            fig6.savefig(os.path.join(self.CHARTS_DIR, "05_memory_usage.png"), dpi=300)
+            fig6.savefig(os.path.join(self.CHARTS_DIR, "06_memory_usage.png"), dpi=300)
             all_figures.append(fig6); all_descriptions.append("This chart shows the peak RAM usage of the main process. The GPU method offloads data to VRAM, consuming less RAM. The single-thread CPU is most RAM-efficient. The parallel CPU shows higher RAM usage due to the overhead of managing the process pool and shared memory segments.")
+
+        # ZMIANA: Dodanie wykresu z przykładową heatmapą
+        sample_data_path = os.path.join(self.TEST_DATA_DIR, f"scaled_data_{self.STANDARD_TEST_SIZE}.tif")
+        if os.path.exists(sample_data_path):
+            bands_data = read_geotiff_bands(sample_data_path)
+            ndvi_result, data_mask = calculate_index_cpu_single(bands_data, "NDVI")
+            fig_heatmap = visualizer.create_heatmap_figure(
+                ndvi_result, data_mask, "NDVI", f"Sample {self.STANDARD_TEST_SIZE}x{self.STANDARD_TEST_SIZE} Area"
+            )
+            fig_heatmap.savefig(os.path.join(self.CHARTS_DIR, "07_sample_output.png"), dpi=300)
+            all_figures.append(fig_heatmap)
+            all_descriptions.append("This chart shows a sample visual output of the NDVI calculation on a standard test dataset. It demonstrates the final product of the processing pipeline, visualizing vegetation density.")
 
         return all_figures, all_descriptions
