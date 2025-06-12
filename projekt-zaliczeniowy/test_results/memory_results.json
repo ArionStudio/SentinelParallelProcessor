@@ -1,0 +1,8 @@
+{
+    "GPU (Taichi)": 106.84375,
+    "CPU (1-Thread, NumPy)": 144.453125,
+    "CPU (1-Threads, SharedMem)": 155.890625,
+    "CPU (2-Threads, SharedMem)": 150.75,
+    "CPU (4-Threads, SharedMem)": 130.5625,
+    "CPU (8-Threads, SharedMem)": 130.375
+}
