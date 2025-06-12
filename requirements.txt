@@ -6,3 +6,6 @@ tkintermapview
 sentinelhub
 taichi
 tkcalendar
+cpuinfo
+memory_profiler
+psutil

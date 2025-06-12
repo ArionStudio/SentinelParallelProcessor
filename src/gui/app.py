@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import ttk
+from multiprocessing import freeze_support
 
 from sentinelhub import SHConfig
 from src.core.data_loader.data_loader import SentinelDataLoader
@@ -7,7 +8,7 @@ from src.gui.controllers.view_controller import ViewController
 from src.gui.controllers.map_controller import MapController
 from src.gui.views.login_view import LoginView
 from src.gui.views.map_view import MapView
-
+from src.gui.controllers.test_controller import TestController
 
 class MainApplication(ttk.Frame):
     """
@@ -32,7 +33,7 @@ class MainApplication(ttk.Frame):
 
         self.view_controller = ViewController(self)
         self.map_controller = MapController(self, self.view_controller)
-        # Usunęliśmy processing_controller
+        self.test_controller = TestController(self)
 
         self.view_controller.switch_to(LoginView)
 
@@ -54,6 +55,7 @@ class MainApplication(ttk.Frame):
 
 
 if __name__ == "__main__":
+    freeze_support()
     root = tk.Tk()
     app = MainApplication(root)
     app.run()

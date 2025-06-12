@@ -198,3 +198,4 @@ cython_debug/
 sentinel_config.enc
 
 data/
+test_data/

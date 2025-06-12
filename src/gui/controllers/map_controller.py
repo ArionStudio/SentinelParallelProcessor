@@ -1,13 +1,16 @@
+# src/gui/controllers/map_controller.py
+
 import threading
 import os
 import hashlib
 import time
-from tkinter import messagebox
 from typing import TYPE_CHECKING
+from tkinter import messagebox
 
 from src.core.io.data_writer import save_bands_to_geotiff
 from src.core.io.data_reader import read_geotiff_bands
-from src.core.processing.index_calculator import calculate_index
+from src.core.processing.index_calculator import calculate_index as calculate_index_gpu
+from src.core.processing.cpu_index_calculator import calculate_index as calculate_index_cpu
 
 if TYPE_CHECKING:
     from src.gui.app import MainApplication
@@ -88,17 +91,25 @@ class MapController:
         except Exception as e:
             self.app.after(0, self.view.set_status, f"Błąd podczas ładowania danych: {e}")
         finally:
-            self.app.after(0, self.view.set_fetch_button_state, True) # Zawsze odblokuj fetch
+            self.app.after(0, self.view.set_fetch_button_state, True)
 
     def _calculation_worker(self, index_type: str):
         try:
+            processor_type = self.view.get_selected_processor()
             self.last_calculated_index = index_type
-            self.index_result, self.result_mask = calculate_index(self.raw_data, index_type)
+            
+            if processor_type == "GPU":
+                self.index_result, self.result_mask = calculate_index_gpu(self.raw_data, index_type)
+            else:
+                # ZMIANA: Pobierz liczbę wątków z widoku i przekaż do funkcji CPU
+                n_threads = self.view.get_cpu_thread_count()
+                self.index_result, self.result_mask = calculate_index_cpu(self.raw_data, index_type, n_jobs=n_threads)
+            
             self.app.after(0, self.view.display_result, index_type)
+            
         except Exception as e:
-            # ZMIANA: Wyświetlaj błędy w okienku dialogowym, a nie tylko w statusie
             error_message = f"An error occurred during calculation:\n\n{type(e).__name__}: {e}"
-            print(f"ERROR in calculation worker: {error_message}") # Zostawiamy też w konsoli
+            print(f"ERROR in calculation worker: {error_message}")
             self.app.after(0, lambda: messagebox.showerror("Calculation Error", error_message))
             self.app.after(0, self.view.set_status, "Calculation failed. See error details.")
         finally:

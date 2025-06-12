@@ -1,6 +1,8 @@
 import tkinter as tk
 from src.gui.app import MainApplication
 
+from multiprocessing import freeze_support
+
 def main():
     # Create root window
     root = tk.Tk()
@@ -12,4 +14,5 @@ def main():
     root.mainloop()
 
 if __name__ == "__main__":
+    freeze_support()
     main()

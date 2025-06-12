@@ -1,3 +1,5 @@
+# src/gui/views/map_view.py
+
 import tkinter as tk
 from tkinter import ttk, messagebox
 import io
@@ -7,11 +9,15 @@ import matplotlib.cm
 import matplotlib.colors
 import matplotlib.pyplot as plt
 from typing import TYPE_CHECKING, Tuple
+from multiprocessing import cpu_count
 
 from tkintermapview import TkinterMapView
 from tkintermapview.utility_functions import osm_to_decimal
 from tkcalendar import DateEntry
 from pyproj import Geod
+
+# ZMIANA: Dodanie brakującego importu TestView
+from src.gui.views.test_view import TestView
 
 if TYPE_CHECKING:
     from src.gui.app import MainApplication
@@ -60,12 +66,14 @@ class MapView(ttk.Frame):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
 
-        # --- Górny panel z kontrolkami (wiersz 0) ---
         top_controls_frame = ttk.Frame(self)
         top_controls_frame.grid(row=0, column=0, sticky="ew", pady=(0, 10))
         
-        date_frame = ttk.LabelFrame(top_controls_frame, text="Date Range", padding=10)
-        date_frame.pack(side="left", fill="x", padx=(0, 10))
+        left_controls_frame = ttk.Frame(top_controls_frame)
+        left_controls_frame.pack(side="left", fill="x", padx=(0, 10))
+
+        date_frame = ttk.LabelFrame(left_controls_frame, text="Date Range", padding=10)
+        date_frame.pack(side="left", fill="x")
         ttk.Label(date_frame, text="Start:").pack(side="left")
         self.start_date_entry = DateEntry(date_frame, date_pattern="yyyy-mm-dd", year=2025, month=5, day=1)
         self.start_date_entry.pack(side="left", padx=5)
@@ -73,21 +81,41 @@ class MapView(ttk.Frame):
         self.end_date_entry = DateEntry(date_frame, date_pattern="yyyy-mm-dd", year=2025, month=6, day=11)
         self.end_date_entry.pack(side="left", padx=5)
 
-        vis_controls_frame = ttk.Frame(top_controls_frame)
-        vis_controls_frame.pack(side="right", padx=10)
-        self.ndvi_button = ttk.Button(vis_controls_frame, text="Calculate NDVI", command=lambda: self.controller.handle_calculate_index("NDVI"), state="disabled")
+        processor_frame = ttk.LabelFrame(left_controls_frame, text="Processor", padding=10)
+        processor_frame.pack(side="left", fill="x", padx=10)
+        
+        self.processor_var = tk.StringVar(value="GPU")
+        gpu_radio = ttk.Radiobutton(processor_frame, text="GPU (Taichi)", variable=self.processor_var, value="GPU", command=self._on_processor_change)
+        gpu_radio.pack(side="left")
+        cpu_radio = ttk.Radiobutton(processor_frame, text="CPU (Parallel)", variable=self.processor_var, value="CPU", command=self._on_processor_change)
+        cpu_radio.pack(side="left", padx=5)
+        
+        ttk.Label(processor_frame, text="Threads:").pack(side="left", padx=(10, 2))
+        self.thread_count_var = tk.IntVar(value=cpu_count())
+        self.thread_spinbox = ttk.Spinbox(processor_frame, from_=1, to=cpu_count(), textvariable=self.thread_count_var, width=5)
+        self.thread_spinbox.pack(side="left")
+        
+        Tooltip(gpu_radio, "Fast calculations on the graphics card.")
+        Tooltip(cpu_radio, "Parallel calculations on the CPU cores.\nUI may freeze for a moment during processing.")
+        Tooltip(self.thread_spinbox, "Number of CPU threads to use for calculation.")
+
+        right_buttons_frame = ttk.Frame(top_controls_frame)
+        right_buttons_frame.pack(side="right")
+
+        test_button = ttk.Button(right_buttons_frame, text="Performance Tests", command=lambda: self.app.view_controller.switch_to(TestView))
+        test_button.pack(side="left", padx=(0, 20))
+
+        self.fetch_button = ttk.Button(right_buttons_frame, text="Fetch Data for Current View", command=self.controller.handle_fetch_data)
+        self.fetch_button.pack(side="left", padx=10)
+
+        self.ndvi_button = ttk.Button(right_buttons_frame, text="Calculate NDVI", command=lambda: self.controller.handle_calculate_index("NDVI"), state="disabled")
         self.ndvi_button.pack(side="left", padx=5)
-        self.ndmi_button = ttk.Button(vis_controls_frame, text="Calculate NDMI", command=lambda: self.controller.handle_calculate_index("NDMI"), state="disabled")
-        self.ndmi_button.pack(side="left", padx=5)
+        self.ndmi_button = ttk.Button(right_buttons_frame, text="Calculate NDMI", command=lambda: self.controller.handle_calculate_index("NDMI"), state="disabled")
+        self.ndmi_button.pack(side="left")
 
-        self.fetch_button = ttk.Button(top_controls_frame, text="Fetch Data for Current View", command=self.controller.handle_fetch_data)
-        self.fetch_button.pack(side="right")
-
-        # --- Główny panel z mapą i wynikiem (wiersz 1) ---
         self.paned_window = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
         self.paned_window.grid(row=1, column=0, sticky="nsew")
 
-        # --- Panel lewy (Mapa) ---
         map_frame = ttk.Frame(self.paned_window)
         map_frame.grid_rowconfigure(0, weight=1)
         map_frame.grid_columnconfigure(0, weight=1)
@@ -100,78 +128,68 @@ class MapView(ttk.Frame):
         self.map_widget.bind("<MouseWheel>", self._on_map_interaction)
         self.paned_window.add(map_frame, weight=1)
 
-        # --- Panel prawy (Wynik i Legenda) ---
         result_frame = ttk.Frame(self.paned_window)
         result_frame.grid_rowconfigure(0, weight=1)
         result_frame.grid_columnconfigure(0, weight=1)
-        
         self.result_image_label = ttk.Label(result_frame, background=self.BACKGROUND_COLOR)
         self.result_image_label.grid(row=0, column=0, sticky="nsew")
-        
         self.legend_label = ttk.Label(result_frame)
         self.legend_label.grid(row=1, column=0, sticky="ew", pady=5)
-        
         self.paned_window.add(result_frame, weight=1)
         self.paned_window.bind("<Configure>", self._initialize_paned_window_sash)
 
-        # --- Dolny panel statusu (wiersz 2) ---
         bottom_frame = ttk.Frame(self)
         bottom_frame.grid(row=2, column=0, sticky="ew", pady=(10, 0))
         self.status_var = tk.StringVar(value="Ready. Move map or click 'Fetch Data'.")
         ttk.Label(bottom_frame, textvariable=self.status_var).pack(side="left")
         self.timer_var = tk.StringVar(value="")
         ttk.Label(bottom_frame, textvariable=self.timer_var, font=("TkFixedFont", 10)).pack(side="right")
+        
+        self._on_processor_change()
+
+    def _on_processor_change(self):
+        if self.processor_var.get() == "CPU":
+            self.thread_spinbox.config(state="normal")
+        else:
+            self.thread_spinbox.config(state="disabled")
+
+    def get_selected_processor(self) -> str:
+        return self.processor_var.get()
+
+    def get_cpu_thread_count(self) -> int:
+        try:
+            count = int(self.thread_count_var.get())
+            return max(1, count)
+        except (tk.TclError, ValueError):
+            return cpu_count()
 
     def _initialize_paned_window_sash(self, event=None):
-        # ... (bez zmian) ...
         if self.paned_window.winfo_width() > 1:
             midpoint = self.paned_window.winfo_width() // 2
             self.paned_window.sashpos(0, midpoint)
             self.paned_window.unbind("<Configure>")
 
     def _on_map_interaction(self, event=None):
-        # ... (bez zmian) ...
         self.set_fetch_button_state(True)
         self.set_status("Map moved. Click 'Fetch Data' to load new area.")
 
     def _get_colormap_and_norm(self, index_type: str) -> Tuple[matplotlib.colors.Colormap, matplotlib.colors.Normalize]:
-        """Zwraca niestandardową mapę kolorów i normalizację dla danego wskaźnika."""
         if index_type == "NDVI":
-            # Dyskretna mapa kolorów dla NDVI
-            colors = [
-                '#0c0c0c', '#505050', '#ccc682', '#91bf51', '#70a33f',
-                '#4f892d', '#306d1c', '#0f540a', '#004400'
-            ]
+            colors = ['#0c0c0c', '#505050', '#ccc682', '#91bf51', '#70a33f', '#4f892d', '#306d1c', '#0f540a', '#004400']
             boundaries = [-1.0, -0.5, 0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 1.0]
             cmap = matplotlib.colors.ListedColormap(colors)
             norm = matplotlib.colors.BoundaryNorm(boundaries, cmap.N)
             return cmap, norm
-        
         elif index_type == "NDMI":
-            # ZMIANA: Dyskretna mapa kolorów dla NDMI (Czerwony -> Żółty -> Niebieski)
-            # Niskie wartości (sucho) -> Czerwony
-            # Wysokie wartości (mokro/woda) -> Niebieski
-            colors = [
-                '#a50026',  # <-0.6 (bardzo sucho)
-                '#d73027',  # -0.6 to -0.2
-                '#f46d43',  # -0.2 to 0.0
-                '#fee090',  # 0.0 to 0.2 (przejście, lekko wilgotne)
-                '#abd9e9',  # 0.2 to 0.4 (wilgotne)
-                '#74add1',  # 0.4 to 0.6 (bardzo wilgotne)
-                '#4575b4'   # > 0.6 (woda)
-            ]
-            # Granice przedziałów dla kolorów
+            colors = ['#a50026', '#d73027', '#f46d43', '#fee090', '#abd9e9', '#74add1', '#4575b4']
             boundaries = [-1.0, -0.6, -0.2, 0.0, 0.2, 0.4, 0.6, 1.0]
             cmap = matplotlib.colors.ListedColormap(colors)
             norm = matplotlib.colors.BoundaryNorm(boundaries, cmap.N)
             return cmap, norm
-        
         else:
-            # Domyślna mapa na wszelki wypadek
             return matplotlib.cm.get_cmap('viridis'), matplotlib.colors.Normalize(vmin=-1, vmax=1)
 
     def get_view_parameters(self):
-        # ... (bez zmian) ...
         top_left, bottom_right, image_size, zoom = self._get_precise_view_data()
         is_valid, mpp = self._validate_resolution(top_left, bottom_right, image_size)
         if not is_valid:
@@ -184,7 +202,6 @@ class MapView(ttk.Frame):
         return top_left, bottom_right, image_size, time_interval, zoom
 
     def _get_precise_view_data(self) -> tuple:
-        # ... (bez zmian) ...
         self.map_widget.update_idletasks()
         upper_left_tile = self.map_widget.upper_left_tile_pos
         lower_right_tile = self.map_widget.lower_right_tile_pos
@@ -197,7 +214,6 @@ class MapView(ttk.Frame):
         return top_left, bottom_right, image_size, zoom
 
     def _validate_resolution(self, top_left, bottom_right, image_size) -> tuple[bool, float]:
-        # ... (bez zmian) ...
         nw_lat, nw_lon = top_left
         se_lat, se_lon = bottom_right
         width_px, _ = image_size
@@ -211,79 +227,57 @@ class MapView(ttk.Frame):
         return is_valid, effective_mpp
 
     def _resize_image_with_aspect_ratio(self, source_img: Image.Image, target_size: tuple[int, int]) -> Image.Image:
-        # ... (bez zmian) ...
         target_w, target_h = target_size
         source_w, source_h = source_img.size
-
-        if source_w == 0 or source_h == 0:
-            return Image.new('RGB', target_size, self.BACKGROUND_COLOR)
-
+        if source_w == 0 or source_h == 0: return Image.new('RGB', target_size, self.BACKGROUND_COLOR)
         source_ratio = source_w / source_h
         target_ratio = target_w / target_h
-
         if target_ratio > source_ratio:
             new_h = target_h
             new_w = int(new_h * source_ratio)
         else:
             new_w = target_w
             new_h = int(new_w / source_ratio)
-
         resized_img = source_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
-
         final_img = Image.new("RGBA", target_size, self.BACKGROUND_COLOR)
         paste_x = (target_w - new_w) // 2
         paste_y = (target_h - new_h) // 2
         final_img.paste(resized_img, (paste_x, paste_y))
-        
         return final_img
 
     def _create_placeholder_image(self, width: int, height: int, text: str) -> Image.Image:
-        # ... (bez zmian) ...
         img = Image.new('RGB', (width, height), color='gray')
         draw = ImageDraw.Draw(img)
-        try:
-            font = ImageFont.truetype("arial.ttf", size=16)
-        except IOError:
-            font = ImageFont.load_default()
-        
+        try: font = ImageFont.truetype("arial.ttf", size=16)
+        except IOError: font = ImageFont.load_default()
         text_bbox = draw.textbbox((0, 0), text, font=font)
         text_width = text_bbox[2] - text_bbox[0]
         text_height = text_bbox[3] - text_bbox[1]
         position = ((width - text_width) / 2, (height - text_height) / 2)
-        
         draw.text(position, text, font=font, fill='white', align="center")
         return img
 
     def display_result(self, index_type: str):
-        # ... (bez zmian) ...
         self.update_idletasks()
-        
         target_w = self.map_widget.winfo_width()
         target_h = self.map_widget.winfo_height()
-
         if np.all(self.controller.result_mask == 0):
-            placeholder_img = self._create_placeholder_image(
-                512, 512, "No valid data in the selected area.\n(e.g., due to clouds or location)"
-            )
+            placeholder_img = self._create_placeholder_image(512, 512, "No valid data in the selected area.\n(e.g., due to clouds or location)")
             display_image = self._resize_image_with_aspect_ratio(placeholder_img, (target_w, target_h))
             self.set_status(f"Calculation complete: No valid data found for {index_type}.")
         else:
             heatmap = self.create_heatmap(self.controller.index_result, self.controller.result_mask, index_type)
             display_image = self._resize_image_with_aspect_ratio(heatmap, (target_w, target_h))
             self.set_status(f"{index_type} visualization complete!")
-
         self.result_photo = ImageTk.PhotoImage(display_image)
         self.result_image_label.configure(image=self.result_photo)
-        
         legend_width = self.result_image_label.winfo_width()
         if legend_width > 10:
             self.legend_photo = self.create_legend(index_type, width=legend_width)
             self.legend_label.configure(image=self.legend_photo)
 
     def create_heatmap(self, index_array: np.ndarray, mask_array: np.ndarray, index_type: str) -> Image.Image:
-        # ... (bez zmian) ...
         colormap, norm = self._get_colormap_and_norm(index_type)
-        
         rgba_image = colormap(norm(index_array))
         alpha_channel = np.full(index_array.shape, 1.0, dtype=np.float32)
         alpha_channel[mask_array == 0] = 0.0
@@ -292,18 +286,13 @@ class MapView(ttk.Frame):
         return Image.fromarray(rgb_image_uint8, "RGBA")
 
     def create_legend(self, index_type: str, width: int) -> ImageTk.PhotoImage:
-        # ... (bez zmian) ...
         colormap, norm = self._get_colormap_and_norm(index_type)
-
         fig = plt.Figure(figsize=(width / 100, 0.6), dpi=100)
         ax = fig.add_axes([0.05, 0.5, 0.9, 0.2])
-        
         cbar = matplotlib.colorbar.ColorbarBase(ax, cmap=colormap, norm=norm, orientation="horizontal")
-        
         if isinstance(norm, matplotlib.colors.BoundaryNorm):
             cbar.set_ticks(norm.boundaries)
             cbar.set_ticklabels([f'{b:.1f}' for b in norm.boundaries])
-
         cbar.set_label(f"{index_type} Value")
         buf = io.BytesIO()
         fig.savefig(buf, format="png", transparent=True)
@@ -311,7 +300,6 @@ class MapView(ttk.Frame):
         img = Image.open(buf)
         return ImageTk.PhotoImage(img)
 
-    # --- Pozostałe metody bez zmian ---
     def set_status(self, message: str):
         self.status_var.set(message)
 

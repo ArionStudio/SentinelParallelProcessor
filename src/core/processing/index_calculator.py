@@ -1,24 +1,14 @@
+# src/core/processing/index_calculator.py
+
 import numpy as np
 import taichi as ti
 from typing import Dict, Tuple
 import sys
 
-# --- Inteligentna inicjalizacja Taichi (bez zmian) ---
-print("Wykrywam system operacyjny w celu optymalizacji Taichi...")
-if sys.platform == "win32":
-    print("System Windows wykryty. Używam backendu DirectX 11 (dx11).")
-    ti.init(arch=ti.dx11)
-elif sys.platform == "darwin":
-    print("System macOS wykryty. Używam backendu Metal.")
-    ti.init(arch=ti.metal)
-else:
-    print(f"System {sys.platform} wykryty. Używam domyślnego backendu GPU.")
-    ti.init(arch=ti.gpu)
+_TAICHI_INITIALIZED = False
+# ZMIANA: Słownik do przechowywania "trwałych" pól Taichi, aby unikać ich ciągłego tworzenia
+_persistent_fields = {}
 
-
-# --- ZMIANA: Usunięto kernel do downscalingu ---
-
-# --- Zoptymalizowany kernel Taichi do obliczeń wskaźnika (bez zmian) ---
 @ti.kernel
 def _normalized_diff_kernel(
     band1: ti.template(), band2: ti.template(), result: ti.template()
@@ -27,15 +17,27 @@ def _normalized_diff_kernel(
         b1_val = band1[i, j]
         b2_val = band2[i, j]
         denominator = b1_val + b2_val
-        # Unikamy dzielenia przez zero
-        if denominator > 1e-6: # Używamy małej wartości, aby uniknąć problemów z float
+        if denominator > 1e-6:
             result[i, j] = (b1_val - b2_val) / denominator
         else:
             result[i, j] = 0.0
 
-
 def warm_up_taichi():
-    """Rozgrzewa tylko kernel obliczeniowy."""
+    global _TAICHI_INITIALIZED
+    if _TAICHI_INITIALIZED:
+        return
+
+    print("Wykrywam system operacyjny w celu optymalizacji Taichi...")
+    if sys.platform == "win32":
+        print("System Windows wykryty. Używam backendu DirectX 11 (dx11).")
+        ti.init(arch=ti.dx11)
+    elif sys.platform == "darwin":
+        print("System macOS wykryty. Używam backendu Metal.")
+        ti.init(arch=ti.metal)
+    else:
+        print(f"System {sys.platform} wykryty. Używam domyślnego backendu GPU.")
+        ti.init(arch=ti.gpu)
+    
     print("Rozgrzewka kompilatora Taichi (jednorazowa operacja)...")
     dummy_10m = np.zeros((4, 4), dtype=np.float32)
     band1_field = ti.field(dtype=ti.f32, shape=(4, 4))
@@ -45,32 +47,36 @@ def warm_up_taichi():
     band2_field.from_numpy(dummy_10m)
     _normalized_diff_kernel(band1_field, band2_field, result_field)
     print("Kompilator Taichi gotowy do pracy wielowątkowej.")
-
-warm_up_taichi()
-
-
-# --- ZMIANA: Usunięto funkcję _downscale_band ---
+    _TAICHI_INITIALIZED = True
 
 def calculate_index(
     bands: Dict[str, np.ndarray], index_type: str
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    ZMIANA: Oblicza wskaźnik na natywnej, pełnej rozdzielczości (10m)
-    dostarczonej przez API, bez downscalingu.
-    """
-    print(f"Rozpoczynam obliczenia dla wskaźnika: {index_type} przy użyciu Taichi na pełnej rozdzielczości...")
+    global _TAICHI_INITIALIZED, _persistent_fields
+    if not _TAICHI_INITIALIZED:
+        warm_up_taichi()
+
+    print(f"Rozpoczynam obliczenia dla wskaźnika: {index_type} przy użyciu Taichi...")
     
-    # Maska danych ma tę samą rozdzielczość co pasma (10m)
     data_mask = bands["dataMask"]
+    h, w = data_mask.shape
+    
+    # ZMIANA: Logika ponownego użycia pól Taichi
+    def get_or_create_field(name: str, shape: tuple):
+        if name in _persistent_fields and _persistent_fields[name].shape == shape:
+            return _persistent_fields[name]
+        else:
+            print(f"Tworzenie nowego pola Taichi dla '{name}' o kształcie {shape}")
+            field = ti.field(dtype=ti.f32, shape=shape)
+            _persistent_fields[name] = field
+            return field
 
     if index_type == "NDVI":
-        # Używamy bezpośrednio pasm B04 i B08 w rozdzielczości 10m
         b4, b8 = bands["B04"], bands["B08"]
-        h, w = b4.shape
         
-        b4_field = ti.field(dtype=ti.f32, shape=(h, w))
-        b8_field = ti.field(dtype=ti.f32, shape=(h, w))
-        result_field = ti.field(dtype=ti.f32, shape=(h, w))
+        b4_field = get_or_create_field('b4', (h, w))
+        b8_field = get_or_create_field('b8', (h, w))
+        result_field = get_or_create_field('result_ndvi', (h, w))
         
         b4_field.from_numpy(b4.astype(np.float32))
         b8_field.from_numpy(b8.astype(np.float32))
@@ -79,14 +85,11 @@ def calculate_index(
         return result_field.to_numpy(), data_mask
         
     elif index_type == "NDMI":
-        # Używamy bezpośrednio pasm B08 i B11. API dostarcza je już
-        # w tej samej rozdzielczości (10m).
         b8, b11 = bands["B08"], bands["B11"]
-        h, w = b8.shape
 
-        b8_field = ti.field(dtype=ti.f32, shape=(h, w))
-        b11_field = ti.field(dtype=ti.f32, shape=(h, w))
-        result_field = ti.field(dtype=ti.f32, shape=(h, w))
+        b8_field = get_or_create_field('b8', (h, w)) # Może być ponownie użyte
+        b11_field = get_or_create_field('b11', (h, w))
+        result_field = get_or_create_field('result_ndmi', (h, w))
 
         b8_field.from_numpy(b8.astype(np.float32))
         b11_field.from_numpy(b11.astype(np.float32))
