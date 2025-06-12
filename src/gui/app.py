@@ -8,17 +8,17 @@ from src.gui.controllers.map_controller import MapController
 from src.gui.views.login_view import LoginView
 from src.gui.views.map_view import MapView
 
+
 class MainApplication(ttk.Frame):
     """
     The main application frame, acting as a "Composition Root".
-    It initializes controllers and holds shared application state.
     """
 
     def __init__(self, root: tk.Tk):
         super().__init__(root, padding="10")
         self.root = root
         self.root.title("Sentinel Hub Processor")
-        self.root.geometry("1200x800")
+        self.root.geometry("1600x900")
         self._center_window()
 
         self.grid(row=0, column=0, sticky="nsew")
@@ -27,11 +27,12 @@ class MainApplication(ttk.Frame):
 
         self.sh_config: SHConfig | None = None
         self.data_loader: SentinelDataLoader | None = None
+        self.last_map_position = (52.237, 21.017)
+        self.last_map_zoom = 8
 
-        # --- ### ZMIANA ###: Inicjalizacja kontrolerów i przekazanie zależności ---
         self.view_controller = ViewController(self)
         self.map_controller = MapController(self, self.view_controller)
-        # --- Koniec zmiany ---
+        # Usunęliśmy processing_controller
 
         self.view_controller.switch_to(LoginView)
 
@@ -43,21 +44,14 @@ class MainApplication(ttk.Frame):
         self.root.geometry(f"+{x}+{y}")
 
     def on_login_success(self, config: SHConfig):
-        """Callback for successful login."""
         print("App: Login successful. Initializing core components.")
         self.sh_config = config
         self.data_loader = SentinelDataLoader(config=self.sh_config)
         self.view_controller.switch_to(MapView)
 
-    # --- ### ZMIANA ###: Usunięto metodę handle_show_preview. Już tu nie należy. ---
-
-    def show_map_view(self):
-        """Allows other views to request a switch back to the map."""
-        print("App: Returning to Map View.")
-        self.view_controller.switch_to(MapView)
-
     def run(self):
         self.root.mainloop()
+
 
 if __name__ == "__main__":
     root = tk.Tk()

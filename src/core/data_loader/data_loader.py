@@ -13,11 +13,10 @@ from sentinelhub import (
 
 class SentinelDataLoader:
     """
-    Handles fetching satellite imagery bands (B04, B08, B11) and the data mask
-    from the Sentinel Hub Process API using a pre-configured SHConfig object.
+    Handles fetching analytical bands (B04, B08, B11) and the data mask.
     """
 
-    EVALSCRIPT_B4_B8_B11 = """
+    EVALSCRIPT_BANDS = """
         //VERSION=3
         function setup() {
             return {
@@ -31,41 +30,26 @@ class SentinelDataLoader:
     """
 
     def __init__(self, config: SHConfig):
-        """
-        Initializes the data loader with a validated Sentinel Hub config object.
-
-        Args:
-            config: A validated SHConfig object containing the necessary
-                    authentication credentials (client_id and client_secret).
-        """
         if not isinstance(config, SHConfig):
-            raise TypeError("SentinelDataLoader must be initialized with a SHConfig object.")
+            raise TypeError(
+                "SentinelDataLoader must be initialized with a SHConfig object."
+            )
         self.config = config
 
-    def fetch_bands(
+    def fetch_data(
         self,
         bbox: Tuple[float, float, float, float],
         image_size: Tuple[int, int],
-        time_interval: Tuple[str, str] = ("2025-05-01", "2025-06-30"),
+        time_interval: Tuple[str, str],
     ) -> Optional[Dict[str, np.ndarray]]:
         """
-        Fetches B04, B08, B11 bands and the data mask for a given area and time.
-
-        Args:
-            bbox: A tuple representing the bounding box in WGS84 CRS
-                  (min_lon, min_lat, max_lon, max_lat).
-            image_size: A tuple representing the output image size (width, height).
-            time_interval: A tuple of strings for the start and end date.
-
-        Returns:
-            A dictionary mapping band names to their NumPy arrays, or None if
-            the request fails.
+        Fetches analytical bands for a given area and time.
         """
         try:
             sentinel_bbox = BBox(bbox=bbox, crs=CRS.WGS84)
 
-            request = SentinelHubRequest(
-                evalscript=self.EVALSCRIPT_B4_B8_B11,
+            request_bands = SentinelHubRequest(
+                evalscript=self.EVALSCRIPT_BANDS,
                 input_data=[
                     SentinelHubRequest.input_data(
                         data_collection=DataCollection.SENTINEL2_L2A,
@@ -73,15 +57,17 @@ class SentinelDataLoader:
                         mosaicking_order="leastCC",
                     )
                 ],
-                responses=[SentinelHubRequest.output_response("default", MimeType.TIFF)],
+                responses=[
+                    SentinelHubRequest.output_response("default", MimeType.TIFF)
+                ],
                 bbox=sentinel_bbox,
                 size=image_size,
-                config=self.config,  # Use the provided config object
+                config=self.config,
             )
-
-            print(f"Requesting data for bbox {bbox} at {image_size} resolution...")
-            bands_data = request.get_data()[0]
-            print("Data received successfully.")
+            
+            print(f"Requesting analytical bands for bbox {bbox}...")
+            bands_data = request_bands.get_data()[0]
+            print("Analytical bands received successfully.")
 
             return {
                 "B04": bands_data[:, :, 0],
@@ -91,4 +77,4 @@ class SentinelDataLoader:
             }
         except Exception as e:
             print(f"An error occurred while fetching Sentinel Hub data: {e}")
-            return None
+            raise e

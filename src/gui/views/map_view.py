@@ -1,19 +1,24 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
-from typing import TYPE_CHECKING, Callable
+import io
+import numpy as np
+from PIL import Image, ImageTk, ImageDraw, ImageFont
+import matplotlib.cm
+import matplotlib.colors
+import matplotlib.pyplot as plt
+from typing import TYPE_CHECKING, Tuple
 
 from tkintermapview import TkinterMapView
 from tkintermapview.utility_functions import osm_to_decimal
 from tkcalendar import DateEntry
-# --- ### ZMIANA ###: Wracamy do pyproj, bo jest niezawodny ---
 from pyproj import Geod
 
 if TYPE_CHECKING:
     from src.gui.app import MainApplication
+    from src.gui.controllers.map_controller import MapController
 
-
+# Klasa Tooltip bez zmian
 class Tooltip:
-    # ... (klasa Tooltip bez zmian) ...
     def __init__(self, widget, text):
         self.widget = widget
         self.text = text
@@ -33,88 +38,141 @@ class Tooltip:
         if self.tip_window: self.tip_window.destroy()
         self.tip_window = None
 
-
 class MapView(ttk.Frame):
     API_RESOLUTION_LIMIT_METERS = 1500.0
-    # --- ### ZMIANA ###: Definiujemy margines bezpieczeństwa (10%) ---
     VALIDATION_SAFETY_MARGIN = 1.10
+    BACKGROUND_COLOR = "#333333" 
 
-    def __init__(
-        self, controller: "MainApplication", on_fetch_callback: Callable, on_preview_callback: Callable, **kwargs
-    ):
-        super().__init__(controller, padding=10, **kwargs)
+    def __init__(self, parent: "MainApplication", controller: "MapController", initial_position: tuple, initial_zoom: int, **kwargs):
+        super().__init__(parent, padding=10, **kwargs)
+        self.app = parent
         self.controller = controller
-        self.on_fetch_callback = on_fetch_callback
-        self.on_preview_callback = on_preview_callback
+        self.controller.set_view(self)
+        self.initial_position = initial_position
+        self.initial_zoom = initial_zoom
+        
+        self.result_photo = None
+        self.legend_photo = None
+
         self._setup_ui()
 
     def _setup_ui(self):
-        # ... (reszta _setup_ui bez zmian) ...
-        self.grid_rowconfigure(1, weight=1)
         self.grid_columnconfigure(0, weight=1)
-        instruction_label = ttk.Label(self, text="Pan and zoom the map, select a date range, then click an action button.", font=("TkDefaultFont", 10, "italic"))
-        instruction_label.grid(row=0, column=0, pady=(0, 10), sticky="w")
-        self.map_widget = TkinterMapView(self, corner_radius=0)
-        self.map_widget.set_position(52.237, 21.017)
-        self.map_widget.set_zoom(6)
-        self.map_widget.grid(row=1, column=0, sticky="nsew")
-        date_frame = ttk.LabelFrame(self, text="Date Range", padding=10)
-        date_frame.grid(row=2, column=0, pady=10, sticky="ew")
-        info_button = ttk.Button(date_frame, text="?", width=2, command=self._show_date_range_info)
-        info_button.grid(row=0, column=4, padx=(20, 0), sticky="e")
-        Tooltip(info_button, "Click to learn why a date range is used.")
-        ttk.Label(date_frame, text="Start Date:").grid(row=0, column=0, padx=(0, 5), sticky="w")
+        self.grid_rowconfigure(1, weight=1)
+
+        # --- Górny panel z kontrolkami (wiersz 0) ---
+        top_controls_frame = ttk.Frame(self)
+        top_controls_frame.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        
+        date_frame = ttk.LabelFrame(top_controls_frame, text="Date Range", padding=10)
+        date_frame.pack(side="left", fill="x", padx=(0, 10))
+        ttk.Label(date_frame, text="Start:").pack(side="left")
         self.start_date_entry = DateEntry(date_frame, date_pattern="yyyy-mm-dd", year=2025, month=5, day=1)
-        self.start_date_entry.grid(row=0, column=1, padx=(0, 20))
-        ttk.Label(date_frame, text="End Date:").grid(row=0, column=2, padx=(0, 5), sticky="w")
+        self.start_date_entry.pack(side="left", padx=5)
+        ttk.Label(date_frame, text="End:").pack(side="left")
         self.end_date_entry = DateEntry(date_frame, date_pattern="yyyy-mm-dd", year=2025, month=6, day=11)
-        self.end_date_entry.grid(row=0, column=3)
-        explanation_label = ttk.Label(date_frame, text="The app will find the best quality (least cloudy) image within this period.", font=("TkDefaultFont", 9, "italic"), foreground="gray")
-        explanation_label.grid(row=1, column=0, columnspan=5, pady=(10, 0), sticky="w")
-        action_frame = ttk.Frame(self)
-        action_frame.grid(row=3, column=0, pady=(0, 10))
-        self.fetch_button = ttk.Button(action_frame, text="Fetch & Save Data", command=self._on_fetch_button_click)
-        self.fetch_button.pack(side="left", padx=5)
-        self.preview_button = ttk.Button(action_frame, text="Show Preview", command=self._on_preview_button_click)
-        self.preview_button.pack(side="left", padx=5)
-        self.status_var = tk.StringVar(value="Ready.")
-        status_bar = ttk.Label(self, textvariable=self.status_var, anchor="w")
-        status_bar.grid(row=4, column=0, sticky="ew", pady=(5, 0))
+        self.end_date_entry.pack(side="left", padx=5)
 
-    def _validate_resolution(self, top_left, bottom_right, image_size) -> tuple[bool, float]:
-        """
-        --- ### ZMIANA ###: Ulepszona i niezawodna walidacja z pyproj ---
-        Calculates resolution at the center of the BBox and applies a safety margin.
-        """
-        nw_lat, nw_lon = top_left
-        se_lat, se_lon = bottom_right
-        width_px, _ = image_size
+        vis_controls_frame = ttk.Frame(top_controls_frame)
+        vis_controls_frame.pack(side="right", padx=10)
+        self.ndvi_button = ttk.Button(vis_controls_frame, text="Calculate NDVI", command=lambda: self.controller.handle_calculate_index("NDVI"), state="disabled")
+        self.ndvi_button.pack(side="left", padx=5)
+        self.ndmi_button = ttk.Button(vis_controls_frame, text="Calculate NDMI", command=lambda: self.controller.handle_calculate_index("NDMI"), state="disabled")
+        self.ndmi_button.pack(side="left", padx=5)
 
-        if width_px == 0:
-            return False, float('inf')
+        self.fetch_button = ttk.Button(top_controls_frame, text="Fetch Data for Current View", command=self.controller.handle_fetch_data)
+        self.fetch_button.pack(side="right")
 
-        # Oblicz środek szerokości geograficznej dla dokładniejszego pomiaru
-        center_lat = (nw_lat + se_lat) / 2
+        # --- Główny panel z mapą i wynikiem (wiersz 1) ---
+        self.paned_window = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
+        self.paned_window.grid(row=1, column=0, sticky="nsew")
 
-        geod = Geod(ellps="WGS84")
-        # Oblicz szerokość geograficzną na środku bounding boxa
-        _, _, distance_meters = geod.inv(nw_lon, center_lat, se_lon, center_lat)
+        # --- Panel lewy (Mapa) ---
+        map_frame = ttk.Frame(self.paned_window)
+        map_frame.grid_rowconfigure(0, weight=1)
+        map_frame.grid_columnconfigure(0, weight=1)
+        self.map_widget = TkinterMapView(map_frame, corner_radius=0)
+        self.map_widget.set_tile_server("https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}", max_zoom=22)
+        self.map_widget.set_position(self.initial_position[0], self.initial_position[1])
+        self.map_widget.set_zoom(self.initial_zoom)
+        self.map_widget.grid(row=0, column=0, sticky="nsew")
+        self.map_widget.bind("<B1-Motion>", self._on_map_interaction)
+        self.map_widget.bind("<MouseWheel>", self._on_map_interaction)
+        self.paned_window.add(map_frame, weight=1)
 
-        calculated_mpp = distance_meters / width_px
-        # Zastosuj margines bezpieczeństwa, aby być bardziej pesymistycznym niż API
-        effective_mpp = calculated_mpp * self.VALIDATION_SAFETY_MARGIN
+        # --- Panel prawy (Wynik i Legenda) ---
+        result_frame = ttk.Frame(self.paned_window)
+        result_frame.grid_rowconfigure(0, weight=1)
+        result_frame.grid_columnconfigure(0, weight=1)
+        
+        self.result_image_label = ttk.Label(result_frame, background=self.BACKGROUND_COLOR)
+        self.result_image_label.grid(row=0, column=0, sticky="nsew")
+        
+        self.legend_label = ttk.Label(result_frame)
+        self.legend_label.grid(row=1, column=0, sticky="ew", pady=5)
+        
+        self.paned_window.add(result_frame, weight=1)
+        self.paned_window.bind("<Configure>", self._initialize_paned_window_sash)
 
-        print("-" * 20)
-        print("[DEBUG] Walidacja rozdzielczości (metoda pyproj + margines)...")
-        print(f"[DEBUG] Obliczona rozdzielczość: {calculated_mpp:.2f} m/piksel")
-        print(f"[DEBUG] Rozdzielczość z marginesem bezpieczeństwa: {effective_mpp:.2f} m/piksel")
+        # --- Dolny panel statusu (wiersz 2) ---
+        bottom_frame = ttk.Frame(self)
+        bottom_frame.grid(row=2, column=0, sticky="ew", pady=(10, 0))
+        self.status_var = tk.StringVar(value="Ready. Move map or click 'Fetch Data'.")
+        ttk.Label(bottom_frame, textvariable=self.status_var).pack(side="left")
+        self.timer_var = tk.StringVar(value="")
+        ttk.Label(bottom_frame, textvariable=self.timer_var, font=("TkFixedFont", 10)).pack(side="right")
 
-        is_valid = effective_mpp <= self.API_RESOLUTION_LIMIT_METERS
-        return is_valid, effective_mpp
+    def _initialize_paned_window_sash(self, event=None):
+        # ... (bez zmian) ...
+        if self.paned_window.winfo_width() > 1:
+            midpoint = self.paned_window.winfo_width() // 2
+            self.paned_window.sashpos(0, midpoint)
+            self.paned_window.unbind("<Configure>")
 
-    # ... (reszta pliku, w tym _on_fetch_button_click, _get_precise_view_data, etc. bez zmian) ...
-    def _validate_and_get_data(self):
-        top_left, bottom_right, image_size = self._get_precise_view_data()
+    def _on_map_interaction(self, event=None):
+        # ... (bez zmian) ...
+        self.set_fetch_button_state(True)
+        self.set_status("Map moved. Click 'Fetch Data' to load new area.")
+
+    def _get_colormap_and_norm(self, index_type: str) -> Tuple[matplotlib.colors.Colormap, matplotlib.colors.Normalize]:
+        """Zwraca niestandardową mapę kolorów i normalizację dla danego wskaźnika."""
+        if index_type == "NDVI":
+            # Dyskretna mapa kolorów dla NDVI
+            colors = [
+                '#0c0c0c', '#505050', '#ccc682', '#91bf51', '#70a33f',
+                '#4f892d', '#306d1c', '#0f540a', '#004400'
+            ]
+            boundaries = [-1.0, -0.5, 0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 1.0]
+            cmap = matplotlib.colors.ListedColormap(colors)
+            norm = matplotlib.colors.BoundaryNorm(boundaries, cmap.N)
+            return cmap, norm
+        
+        elif index_type == "NDMI":
+            # ZMIANA: Dyskretna mapa kolorów dla NDMI (Czerwony -> Żółty -> Niebieski)
+            # Niskie wartości (sucho) -> Czerwony
+            # Wysokie wartości (mokro/woda) -> Niebieski
+            colors = [
+                '#a50026',  # <-0.6 (bardzo sucho)
+                '#d73027',  # -0.6 to -0.2
+                '#f46d43',  # -0.2 to 0.0
+                '#fee090',  # 0.0 to 0.2 (przejście, lekko wilgotne)
+                '#abd9e9',  # 0.2 to 0.4 (wilgotne)
+                '#74add1',  # 0.4 to 0.6 (bardzo wilgotne)
+                '#4575b4'   # > 0.6 (woda)
+            ]
+            # Granice przedziałów dla kolorów
+            boundaries = [-1.0, -0.6, -0.2, 0.0, 0.2, 0.4, 0.6, 1.0]
+            cmap = matplotlib.colors.ListedColormap(colors)
+            norm = matplotlib.colors.BoundaryNorm(boundaries, cmap.N)
+            return cmap, norm
+        
+        else:
+            # Domyślna mapa na wszelki wypadek
+            return matplotlib.cm.get_cmap('viridis'), matplotlib.colors.Normalize(vmin=-1, vmax=1)
+
+    def get_view_parameters(self):
+        # ... (bez zmian) ...
+        top_left, bottom_right, image_size, zoom = self._get_precise_view_data()
         is_valid, mpp = self._validate_resolution(top_left, bottom_right, image_size)
         if not is_valid:
             messagebox.showwarning("Zoom Level Too Low", f"The current map area is too large.\n\n" f"Estimated resolution: {mpp:.2f} m/pixel\n" f"API limit: {self.API_RESOLUTION_LIMIT_METERS:.2f} m/pixel\n\n" f"Please zoom in and try again.", parent=self)
@@ -123,18 +181,10 @@ class MapView(ttk.Frame):
         start_date = self.start_date_entry.get_date().strftime("%Y-%m-%d")
         end_date = self.end_date_entry.get_date().strftime("%Y-%m-%d")
         time_interval = (start_date, end_date)
-        return top_left, bottom_right, image_size, time_interval
-    def _on_fetch_button_click(self):
-        data = self._validate_and_get_data()
-        if data:
-            top_left, bottom_right, image_size, time_interval = data
-            self.on_fetch_callback(top_left, bottom_right, image_size, time_interval)
-    def _on_preview_button_click(self):
-        data = self._validate_and_get_data()
-        if data:
-            top_left, bottom_right, image_size, time_interval = data
-            self.on_preview_callback(top_left, bottom_right, image_size, time_interval)
+        return top_left, bottom_right, image_size, time_interval, zoom
+
     def _get_precise_view_data(self) -> tuple:
+        # ... (bez zmian) ...
         self.map_widget.update_idletasks()
         upper_left_tile = self.map_widget.upper_left_tile_pos
         lower_right_tile = self.map_widget.lower_right_tile_pos
@@ -144,17 +194,143 @@ class MapView(ttk.Frame):
         top_left = (nw_lat, nw_lon)
         bottom_right = (se_lat, se_lon)
         image_size = (self.map_widget.winfo_width(), self.map_widget.winfo_height())
-        return top_left, bottom_right, image_size
+        return top_left, bottom_right, image_size, zoom
+
+    def _validate_resolution(self, top_left, bottom_right, image_size) -> tuple[bool, float]:
+        # ... (bez zmian) ...
+        nw_lat, nw_lon = top_left
+        se_lat, se_lon = bottom_right
+        width_px, _ = image_size
+        if width_px == 0: return False, float('inf')
+        center_lat = (nw_lat + se_lat) / 2
+        geod = Geod(ellps="WGS84")
+        _, _, distance_meters = geod.inv(nw_lon, center_lat, se_lon, center_lat)
+        calculated_mpp = distance_meters / width_px
+        effective_mpp = calculated_mpp * self.VALIDATION_SAFETY_MARGIN
+        is_valid = effective_mpp <= self.API_RESOLUTION_LIMIT_METERS
+        return is_valid, effective_mpp
+
+    def _resize_image_with_aspect_ratio(self, source_img: Image.Image, target_size: tuple[int, int]) -> Image.Image:
+        # ... (bez zmian) ...
+        target_w, target_h = target_size
+        source_w, source_h = source_img.size
+
+        if source_w == 0 or source_h == 0:
+            return Image.new('RGB', target_size, self.BACKGROUND_COLOR)
+
+        source_ratio = source_w / source_h
+        target_ratio = target_w / target_h
+
+        if target_ratio > source_ratio:
+            new_h = target_h
+            new_w = int(new_h * source_ratio)
+        else:
+            new_w = target_w
+            new_h = int(new_w / source_ratio)
+
+        resized_img = source_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+
+        final_img = Image.new("RGBA", target_size, self.BACKGROUND_COLOR)
+        paste_x = (target_w - new_w) // 2
+        paste_y = (target_h - new_h) // 2
+        final_img.paste(resized_img, (paste_x, paste_y))
+        
+        return final_img
+
+    def _create_placeholder_image(self, width: int, height: int, text: str) -> Image.Image:
+        # ... (bez zmian) ...
+        img = Image.new('RGB', (width, height), color='gray')
+        draw = ImageDraw.Draw(img)
+        try:
+            font = ImageFont.truetype("arial.ttf", size=16)
+        except IOError:
+            font = ImageFont.load_default()
+        
+        text_bbox = draw.textbbox((0, 0), text, font=font)
+        text_width = text_bbox[2] - text_bbox[0]
+        text_height = text_bbox[3] - text_bbox[1]
+        position = ((width - text_width) / 2, (height - text_height) / 2)
+        
+        draw.text(position, text, font=font, fill='white', align="center")
+        return img
+
+    def display_result(self, index_type: str):
+        # ... (bez zmian) ...
+        self.update_idletasks()
+        
+        target_w = self.map_widget.winfo_width()
+        target_h = self.map_widget.winfo_height()
+
+        if np.all(self.controller.result_mask == 0):
+            placeholder_img = self._create_placeholder_image(
+                512, 512, "No valid data in the selected area.\n(e.g., due to clouds or location)"
+            )
+            display_image = self._resize_image_with_aspect_ratio(placeholder_img, (target_w, target_h))
+            self.set_status(f"Calculation complete: No valid data found for {index_type}.")
+        else:
+            heatmap = self.create_heatmap(self.controller.index_result, self.controller.result_mask, index_type)
+            display_image = self._resize_image_with_aspect_ratio(heatmap, (target_w, target_h))
+            self.set_status(f"{index_type} visualization complete!")
+
+        self.result_photo = ImageTk.PhotoImage(display_image)
+        self.result_image_label.configure(image=self.result_photo)
+        
+        legend_width = self.result_image_label.winfo_width()
+        if legend_width > 10:
+            self.legend_photo = self.create_legend(index_type, width=legend_width)
+            self.legend_label.configure(image=self.legend_photo)
+
+    def create_heatmap(self, index_array: np.ndarray, mask_array: np.ndarray, index_type: str) -> Image.Image:
+        # ... (bez zmian) ...
+        colormap, norm = self._get_colormap_and_norm(index_type)
+        
+        rgba_image = colormap(norm(index_array))
+        alpha_channel = np.full(index_array.shape, 1.0, dtype=np.float32)
+        alpha_channel[mask_array == 0] = 0.0
+        rgba_image[:, :, 3] = alpha_channel
+        rgb_image_uint8 = (rgba_image * 255).astype(np.uint8)
+        return Image.fromarray(rgb_image_uint8, "RGBA")
+
+    def create_legend(self, index_type: str, width: int) -> ImageTk.PhotoImage:
+        # ... (bez zmian) ...
+        colormap, norm = self._get_colormap_and_norm(index_type)
+
+        fig = plt.Figure(figsize=(width / 100, 0.6), dpi=100)
+        ax = fig.add_axes([0.05, 0.5, 0.9, 0.2])
+        
+        cbar = matplotlib.colorbar.ColorbarBase(ax, cmap=colormap, norm=norm, orientation="horizontal")
+        
+        if isinstance(norm, matplotlib.colors.BoundaryNorm):
+            cbar.set_ticks(norm.boundaries)
+            cbar.set_ticklabels([f'{b:.1f}' for b in norm.boundaries])
+
+        cbar.set_label(f"{index_type} Value")
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", transparent=True)
+        buf.seek(0)
+        img = Image.open(buf)
+        return ImageTk.PhotoImage(img)
+
+    # --- Pozostałe metody bez zmian ---
     def set_status(self, message: str):
         self.status_var.set(message)
-    def set_button_state(self, is_enabled: bool):
-        state = "!disabled" if is_enabled else "disabled"
-        self.fetch_button.state([state])
-        self.preview_button.state([state])
-    def _show_date_range_info(self):
-        title = "Why Select a Date Range?"
-        message = ("Instead of a single day, you select a period. Here's why:\n\n"
-                   "1.  **Avoids Clouds:** The application automatically finds the image with the least cloud cover within your selected range.\n\n"
-                   "2.  **Ensures Data Availability:** Satellites don't scan every location daily. A range guarantees you'll find data if the satellite passed over during that time.\n\n"
-                   "A wider range increases the chance of getting a perfect, cloud-free image.")
-        messagebox.showinfo(title, message, parent=self)
+
+    def set_fetch_button_state(self, is_enabled: bool):
+        state = "normal" if is_enabled else "disabled"
+        self.fetch_button.config(state=state)
+
+    def set_calc_buttons_state(self, is_enabled: bool):
+        state = "normal" if is_enabled else "disabled"
+        self.ndvi_button.config(state=state)
+        self.ndmi_button.config(state=state)
+
+    def set_all_buttons_state(self, is_enabled: bool):
+        self.set_fetch_button_state(is_enabled)
+        self.set_calc_buttons_state(is_enabled)
+
+    def update_timer_display(self, elapsed_seconds: float, is_final: bool = False):
+        prefix = "Final Time: " if is_final else "Calculation Time: "
+        if elapsed_seconds < 1:
+            self.timer_var.set(f"{prefix}{elapsed_seconds * 1000:.0f} ms")
+        else:
+            self.timer_var.set(f"{prefix}{elapsed_seconds:.3f} s")
