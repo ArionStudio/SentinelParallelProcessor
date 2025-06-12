@@ -22,7 +22,6 @@ if TYPE_CHECKING:
     from src.gui.views.test_view import TestView
 
 class TestController:
-    # ... (reszta klasy bez zmian na początku) ...
     TEST_DATA_DIR = "test_data/scaled"
     RESULTS_FILE = "test_results/full_report_results.json"
     MEMORY_RESULTS_FILE = "test_results/memory_results.json"
@@ -71,19 +70,40 @@ class TestController:
 
     def _run_tests_worker(self):
         try:
-            # ZMIANA: Sprawdzanie, czy widok istnieje przed aktualizacją
-            if self.view and self.view.winfo_exists():
-                self.app.after(0, self.view.update_progress, 0, "Preparing test environment...")
-            
+            # ZMIANA: Dodano blok walidacji plików i folderów na początku
+            # 1. Sprawdź, czy główny folder z danymi testowymi istnieje
+            if not os.path.isdir(self.TEST_DATA_DIR):
+                error_msg = f"Test data directory not found:\n\n{os.path.abspath(self.TEST_DATA_DIR)}\n\nPlease create it and add scaled GeoTIFF files."
+                self.app.after(0, messagebox.showerror, "Setup Error", error_msg)
+                if self.view and self.view.winfo_exists():
+                    self.app.after(0, self.view.update_progress, 100, "Error: Test data directory missing.")
+                return
+
+            # 2. Sprawdź, czy folder zawiera jakiekolwiek pliki .tif do testów skalowalności
             test_files = sorted(
                 [f for f in os.listdir(self.TEST_DATA_DIR) if f.endswith('.tif')],
                 key=lambda x: int(x.split('_')[-1].split('.')[0])
             )
             if not test_files:
+                error_msg = f"No test files (.tif) found in:\n\n{os.path.abspath(self.TEST_DATA_DIR)}\n\nPlease add scaled GeoTIFF files to run the tests."
+                self.app.after(0, messagebox.showerror, "Setup Error", error_msg)
                 if self.view and self.view.winfo_exists():
-                    self.app.after(0, self.view.update_progress, 100, f"No data files in '{self.TEST_DATA_DIR}'.")
+                    self.app.after(0, self.view.update_progress, 100, "Error: No test files found.")
                 return
 
+            # 3. Sprawdź, czy istnieje konkretny plik wymagany do testów skalowalności CPU
+            cpu_test_file_path = os.path.join(self.TEST_DATA_DIR, f"scaled_data_{self.STANDARD_TEST_SIZE}.tif")
+            if not os.path.exists(cpu_test_file_path):
+                error_msg = f"Required file for CPU scaling test is missing:\n\n{os.path.basename(cpu_test_file_path)}\n\nPlease ensure this file exists in the test directory."
+                self.app.after(0, messagebox.showerror, "Setup Error", error_msg)
+                if self.view and self.view.winfo_exists():
+                    self.app.after(0, self.view.update_progress, 100, "Error: CPU test file missing.")
+                return
+
+            # Jeśli wszystkie testy przeszły, kontynuuj
+            if self.view and self.view.winfo_exists():
+                self.app.after(0, self.view.update_progress, 0, "Test environment OK. Starting tests...")
+            
             all_results = {'scalability': {}, 'cpu_scaling': {}, 'gpu_overhead': {}}
             
             num_scalability_runs = len(test_files) * self.REPETITIONS * 3
@@ -92,22 +112,31 @@ class TestController:
             completed_steps = 0
 
             for index_type in ["NDVI", "NDMI"]:
-                # ... (pętle wewnętrzne)
+                all_results['scalability'][index_type] = {}
+                all_results['cpu_scaling'][index_type] = {}
+                all_results['gpu_overhead'][index_type] = {}
+
+                # Testy skalowalności (w zależności od rozmiaru danych)
                 for file_name in test_files:
-                    # ...
+                    size = int(file_name.split('_')[-1].split('.')[0])
+                    size_key = str(size)
+                    all_results['scalability'][index_type][size_key] = {}
+                    file_path = os.path.join(self.TEST_DATA_DIR, file_name)
+                    bands_data = read_geotiff_bands(file_path)
+
                     for config_label, func, kwargs in [
-                        # ...
+                        ('GPU (Taichi)', calculate_index_gpu, {}),
+                        ('CPU (1-Thread, NumPy)', calculate_index_cpu_single, {}),
+                        (f'CPU ({max(self.CPU_SCALABILITY_THREADS)})-Threads, SharedMem)', calculate_index_cpu_multi, {'n_jobs': max(self.CPU_SCALABILITY_THREADS)})
                     ]:
                         times = []
                         for i in range(self.REPETITIONS):
                             status = f"Testing {index_type} Scalability on {size}x{size} ({config_label}, Rep {i+1})"
-                            # ZMIANA: Sprawdzanie, czy widok istnieje
                             if self.view and self.view.winfo_exists():
                                 self.app.after(0, self.view.update_progress, (completed_steps/total_steps)*100, status)
-                            else: # Jeśli widok nie istnieje, przerwij testy
+                            else:
                                 print("Test view closed, aborting tests.")
                                 return
-                                
                             times.append(self._time_execution(func, bands_data, index_type, **kwargs))
                             completed_steps += 1
                         all_results['scalability'][index_type][size_key][config_label] = times
@@ -115,39 +144,35 @@ class TestController:
                             all_results['gpu_overhead'][index_type] = times
                         save_test_results(all_results, self.RESULTS_FILE)
 
-                # ... (druga pętla)
+                # Testy skalowalności CPU (w zależności od liczby wątków)
+                bands_data_cpu = read_geotiff_bands(cpu_test_file_path)
                 for threads in self.CPU_SCALABILITY_THREADS:
                     times = []
                     for i in range(self.REPETITIONS):
                         status = f"Testing {index_type} CPU Scaling with {threads} threads (Rep {i+1})"
-                        # ZMIANA: Sprawdzanie, czy widok istnieje
                         if self.view and self.view.winfo_exists():
                             self.app.after(0, self.view.update_progress, (completed_steps/total_steps)*100, status)
                         else:
                             print("Test view closed, aborting tests.")
                             return
-                        
-                        times.append(self._time_execution(calculate_index_cpu_multi, bands_data, index_type, n_jobs=threads))
+                        times.append(self._time_execution(calculate_index_cpu_multi, bands_data_cpu, index_type, n_jobs=threads))
                         completed_steps += 1
                     all_results['cpu_scaling'][index_type][f'{threads}-Threads'] = times
                     save_test_results(all_results, self.RESULTS_FILE)
 
-            # ZMIANA: Sprawdzanie, czy widok istnieje
             if self.view and self.view.winfo_exists():
                 self.app.after(0, self.view.update_progress, 100, "All tests finished. Generating full report...")
                 self.app.after(0, self.handle_generate_full_report)
 
         except Exception as e:
-            error_message = f"An error occurred during testing: {e}"
-            # ZMIANA: Sprawdzanie, czy widok istnieje
+            error_message = f"An unexpected error occurred during testing: {e}"
             if self.view and self.view.winfo_exists():
-                self.app.after(0, self.view.update_progress, 100, error_message)
+                self.view.update_progress(100, error_message)
+                messagebox.showerror("Runtime Error", error_message)
         finally:
-            # ZMIANA: Sprawdzanie, czy widok istnieje
             if self.view and self.view.winfo_exists():
                 self.app.after(0, self.view.set_buttons_state, True)
 
-    # ... (reszta metod bez zmian)
     def _time_execution(self, func, *args, **kwargs) -> float:
         start_time = time.perf_counter()
         func(*args, **kwargs)
