@@ -15,7 +15,6 @@ from src.core.io.test_reader import load_test_results
 from src.core.processing.index_calculator import calculate_index as calculate_index_gpu
 from src.core.processing.cpu_index_calculator import calculate_index as calculate_index_cpu_multi
 from src.core.processing.cpu_single_thread_calculator import calculate_index as calculate_index_cpu_single
-# ZMIANA: Dodano import modułu wizualizacji
 from src.gui.utils import visualizer
 
 if TYPE_CHECKING:
@@ -23,6 +22,7 @@ if TYPE_CHECKING:
     from src.gui.views.test_view import TestView
 
 class TestController:
+    # ... (reszta klasy bez zmian na początku) ...
     TEST_DATA_DIR = "test_data/scaled"
     RESULTS_FILE = "test_results/full_report_results.json"
     MEMORY_RESULTS_FILE = "test_results/memory_results.json"
@@ -56,27 +56,32 @@ class TestController:
 
         if not time_results:
             messagebox.showerror("Error", f"Could not find time results file: {self.RESULTS_FILE}\nPlease run the tests first.")
-            self.view.update_progress(100, "Ready.")
+            if self.view and self.view.winfo_exists():
+                self.view.update_progress(100, "Ready.")
             return
 
         all_figures, all_descriptions = self._generate_all_plots(time_results, memory_results)
         
-        if all_figures:
-            self.view.display_results(all_figures, all_descriptions)
-            self.view.update_progress(100, "Full report generated and charts saved.")
-        else:
-            self.view.update_progress(100, "No data found to generate a report.")
+        if self.view and self.view.winfo_exists():
+            if all_figures:
+                self.view.display_results(all_figures, all_descriptions)
+                self.view.update_progress(100, "Full report generated and charts saved.")
+            else:
+                self.view.update_progress(100, "No data found to generate a report.")
 
     def _run_tests_worker(self):
-        # ... (reszta metody bez zmian)
         try:
-            self.app.after(0, self.view.update_progress, 0, "Preparing test environment...")
+            # ZMIANA: Sprawdzanie, czy widok istnieje przed aktualizacją
+            if self.view and self.view.winfo_exists():
+                self.app.after(0, self.view.update_progress, 0, "Preparing test environment...")
+            
             test_files = sorted(
                 [f for f in os.listdir(self.TEST_DATA_DIR) if f.endswith('.tif')],
                 key=lambda x: int(x.split('_')[-1].split('.')[0])
             )
             if not test_files:
-                self.app.after(0, self.view.update_progress, 100, f"No data files in '{self.TEST_DATA_DIR}'.")
+                if self.view and self.view.winfo_exists():
+                    self.app.after(0, self.view.update_progress, 100, f"No data files in '{self.TEST_DATA_DIR}'.")
                 return
 
             all_results = {'scalability': {}, 'cpu_scaling': {}, 'gpu_overhead': {}}
@@ -87,26 +92,22 @@ class TestController:
             completed_steps = 0
 
             for index_type in ["NDVI", "NDMI"]:
-                all_results['scalability'][index_type] = {}
-                all_results['cpu_scaling'][index_type] = {}
-                all_results['gpu_overhead'][index_type] = {}
-
+                # ... (pętle wewnętrzne)
                 for file_name in test_files:
-                    size = int(file_name.split('_')[-1].split('.')[0])
-                    size_key = str(size)
-                    all_results['scalability'][index_type][size_key] = {}
-                    file_path = os.path.join(self.TEST_DATA_DIR, file_name)
-                    bands_data = read_geotiff_bands(file_path)
-
+                    # ...
                     for config_label, func, kwargs in [
-                        ('GPU (Taichi)', calculate_index_gpu, {}),
-                        ('CPU (1-Thread, NumPy)', calculate_index_cpu_single, {}),
-                        (f'CPU ({max(self.CPU_SCALABILITY_THREADS)}-Threads, SharedMem)', calculate_index_cpu_multi, {'n_jobs': max(self.CPU_SCALABILITY_THREADS)})
+                        # ...
                     ]:
                         times = []
                         for i in range(self.REPETITIONS):
                             status = f"Testing {index_type} Scalability on {size}x{size} ({config_label}, Rep {i+1})"
-                            self.app.after(0, self.view.update_progress, (completed_steps/total_steps)*100, status)
+                            # ZMIANA: Sprawdzanie, czy widok istnieje
+                            if self.view and self.view.winfo_exists():
+                                self.app.after(0, self.view.update_progress, (completed_steps/total_steps)*100, status)
+                            else: # Jeśli widok nie istnieje, przerwij testy
+                                print("Test view closed, aborting tests.")
+                                return
+                                
                             times.append(self._time_execution(func, bands_data, index_type, **kwargs))
                             completed_steps += 1
                         all_results['scalability'][index_type][size_key][config_label] = times
@@ -114,27 +115,39 @@ class TestController:
                             all_results['gpu_overhead'][index_type] = times
                         save_test_results(all_results, self.RESULTS_FILE)
 
-                file_path = os.path.join(self.TEST_DATA_DIR, f"scaled_data_{self.STANDARD_TEST_SIZE}.tif")
-                bands_data = read_geotiff_bands(file_path)
+                # ... (druga pętla)
                 for threads in self.CPU_SCALABILITY_THREADS:
                     times = []
                     for i in range(self.REPETITIONS):
                         status = f"Testing {index_type} CPU Scaling with {threads} threads (Rep {i+1})"
-                        self.app.after(0, self.view.update_progress, (completed_steps/total_steps)*100, status)
+                        # ZMIANA: Sprawdzanie, czy widok istnieje
+                        if self.view and self.view.winfo_exists():
+                            self.app.after(0, self.view.update_progress, (completed_steps/total_steps)*100, status)
+                        else:
+                            print("Test view closed, aborting tests.")
+                            return
+                        
                         times.append(self._time_execution(calculate_index_cpu_multi, bands_data, index_type, n_jobs=threads))
                         completed_steps += 1
                     all_results['cpu_scaling'][index_type][f'{threads}-Threads'] = times
                     save_test_results(all_results, self.RESULTS_FILE)
 
-            self.app.after(0, self.view.update_progress, 100, "All tests finished. Generating full report...")
-            self.app.after(0, self.handle_generate_full_report)
+            # ZMIANA: Sprawdzanie, czy widok istnieje
+            if self.view and self.view.winfo_exists():
+                self.app.after(0, self.view.update_progress, 100, "All tests finished. Generating full report...")
+                self.app.after(0, self.handle_generate_full_report)
 
         except Exception as e:
             error_message = f"An error occurred during testing: {e}"
-            self.app.after(0, self.view.update_progress, 100, error_message)
+            # ZMIANA: Sprawdzanie, czy widok istnieje
+            if self.view and self.view.winfo_exists():
+                self.app.after(0, self.view.update_progress, 100, error_message)
         finally:
-            self.app.after(0, self.view.set_buttons_state, True)
+            # ZMIANA: Sprawdzanie, czy widok istnieje
+            if self.view and self.view.winfo_exists():
+                self.app.after(0, self.view.set_buttons_state, True)
 
+    # ... (reszta metod bez zmian)
     def _time_execution(self, func, *args, **kwargs) -> float:
         start_time = time.perf_counter()
         func(*args, **kwargs)
@@ -144,7 +157,7 @@ class TestController:
     def _generate_all_plots(self, time_results: Dict, memory_results: Dict) -> Tuple[List[plt.Figure], List[str]]:
         all_figures, all_descriptions = [], []
         
-        # Wykres 1: Przegląd wydajności (bez zmian)
+        # Wykres 1: Przegląd wydajności
         fig1, ax1 = plt.subplots(figsize=(10, 6))
         fig1.suptitle(f"Performance Overview ({self.STANDARD_TEST_SIZE}x{self.STANDARD_TEST_SIZE} data)", fontsize=16)
         labels = ['GPU (Taichi)', 'CPU (1-Thread, NumPy)', f'CPU ({max(self.CPU_SCALABILITY_THREADS)})-Threads, SharedMem)']
@@ -156,8 +169,9 @@ class TestController:
         ax1.bar_label(rects1, padding=3, fmt='%.1f'); ax1.bar_label(rects2, padding=3, fmt='%.1f')
         fig1.savefig(os.path.join(self.CHARTS_DIR, "01_performance_overview.png"), dpi=300)
         all_figures.append(fig1); all_descriptions.append("This chart provides the main performance overview. For a standard dataset, the optimized single-thread NumPy implementation is the fastest due to low overhead. The GPU is slower because of data transfer costs, and the parallel CPU is hampered by process management overhead.")
+        plt.close(fig1)
 
-        # Wykres 2: Skalowalność CPU (bez zmian)
+        # Wykres 2: Skalowalność CPU
         fig2, ax2 = plt.subplots(figsize=(10, 6))
         fig2.suptitle("CPU Parallelization Scalability", fontsize=16)
         cpu_times_ndvi = [np.mean(time_results['cpu_scaling']['NDVI'][f'{t}-Threads']) * 1000 for t in self.CPU_SCALABILITY_THREADS]
@@ -167,8 +181,9 @@ class TestController:
         ax2.set_xlabel('Number of Processes'); ax2.set_ylabel('Average Time (ms)'); ax2.set_xticks(self.CPU_SCALABILITY_THREADS); ax2.legend(); ax2.grid(True)
         fig2.savefig(os.path.join(self.CHARTS_DIR, "02_cpu_scalability.png"), dpi=300)
         all_figures.append(fig2); all_descriptions.append("This chart analyzes the parallel CPU performance. The blue line shows that adding more processes reduces execution time, proving the implementation scales. However, it also shows that the parallel version starts with a high time cost (overhead) and never becomes faster than the superior, non-parallel single-thread approach (gray line) for this task.")
+        plt.close(fig2)
 
-        # Wykres 3 i 4: Skalowalność vs. Rozmiar Danych (bez zmian)
+        # Wykres 3 i 4: Skalowalność vs. Rozmiar Danych
         chart_num = 3
         for index_type in ["NDVI", "NDMI"]:
             fig, ax = plt.subplots(figsize=(12, 7))
@@ -183,8 +198,9 @@ class TestController:
             fig.savefig(os.path.join(self.CHARTS_DIR, f"{chart_num:02d}_size_scalability_{index_type.lower()}.png"), dpi=300)
             all_figures.append(fig); all_descriptions.append(f"This chart shows the 'break-even point' analysis for {index_type}. For small data sizes, the low-overhead single-thread CPU is fastest. As data size increases, the GPU's massive parallelism allows it to scale better. The point where the GPU line crosses the CPU line is the break-even point, beyond which the GPU becomes the superior choice.")
             chart_num += 1
+            plt.close(fig)
 
-        # Wykres 5: Narzut GPU (bez zmian)
+        # Wykres 5: Narzut GPU
         fig5, ax5 = plt.subplots(figsize=(10, 6))
         fig5.suptitle("GPU Overhead Analysis: First Run vs. Subsequent Runs", fontsize=16)
         gpu_times_raw = time_results['gpu_overhead']['NDVI']
@@ -193,8 +209,9 @@ class TestController:
         ax5.set_xlabel('Repetition Number'); ax5.set_ylabel('Execution Time (ms)'); ax5.set_xticks(reps); ax5.bar_label(bars, fmt='%.1f')
         fig5.savefig(os.path.join(self.CHARTS_DIR, "05_gpu_overhead.png"), dpi=300)
         all_figures.append(fig5); all_descriptions.append("This chart visualizes the 'warm-up' cost of the GPU. The first execution is significantly slower because the Just-In-Time (JIT) compiler (Taichi) needs to compile the Python code. Subsequent runs are much faster as they use the already compiled code, measuring mainly the data transfer and kernel execution time.")
+        plt.close(fig5)
 
-        # Wykres 6: Pamięć (bez zmian)
+        # Wykres 6: Pamięć
         if memory_results:
             fig6, ax6 = plt.subplots(figsize=(10, 6))
             fig6.suptitle("Peak Memory Usage (RAM) per Method", fontsize=16)
@@ -204,8 +221,9 @@ class TestController:
             ax6.set_ylabel('Peak Memory Usage (MiB)'); ax6.tick_params(axis='x', rotation=15); ax6.bar_label(bars, fmt='%.1f MiB')
             fig6.savefig(os.path.join(self.CHARTS_DIR, "06_memory_usage.png"), dpi=300)
             all_figures.append(fig6); all_descriptions.append("This chart shows the peak RAM usage of the main process. The GPU method offloads data to VRAM, consuming less RAM. The single-thread CPU is most RAM-efficient. The parallel CPU shows higher RAM usage due to the overhead of managing the process pool and shared memory segments.")
+            plt.close(fig6)
 
-        # ZMIANA: Dodanie wykresu z przykładową heatmapą
+        # Wykres 7: Przykładowa heatmapa
         sample_data_path = os.path.join(self.TEST_DATA_DIR, f"scaled_data_{self.STANDARD_TEST_SIZE}.tif")
         if os.path.exists(sample_data_path):
             bands_data = read_geotiff_bands(sample_data_path)
@@ -216,5 +234,6 @@ class TestController:
             fig_heatmap.savefig(os.path.join(self.CHARTS_DIR, "07_sample_output.png"), dpi=300)
             all_figures.append(fig_heatmap)
             all_descriptions.append("This chart shows a sample visual output of the NDVI calculation on a standard test dataset. It demonstrates the final product of the processing pipeline, visualizing vegetation density.")
+            plt.close(fig_heatmap)
 
         return all_figures, all_descriptions

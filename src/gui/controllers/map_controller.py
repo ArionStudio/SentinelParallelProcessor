@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from src.gui.views.map_view import MapView
 
 class MapController:
+    # ... (reszta bez zmian)
     CACHE_DIR = "data"
 
     def __init__(self, app: "MainApplication", view_controller):
@@ -56,11 +57,12 @@ class MapController:
 
     def handle_calculate_index(self, index_type: str):
         if not self.raw_data:
-            self.view.set_status("Błąd: Brak danych do obliczeń.")
+            if self.view: self.view.set_status("Błąd: Brak danych do obliczeń.")
             return
         
-        self.view.set_status(f"Obliczanie {index_type}...")
-        self.view.set_all_buttons_state(False)
+        if self.view:
+            self.view.set_status(f"Obliczanie {index_type}...")
+            self.view.set_all_buttons_state(False)
         self._start_timer()
         
         thread = threading.Thread(target=self._calculation_worker, args=(index_type,), daemon=True)
@@ -76,46 +78,60 @@ class MapController:
             cache_path = self._generate_cache_path(bbox, image_size, time_interval, zoom)
 
             if os.path.exists(cache_path):
-                self.app.after(0, self.view.set_status, "Cache hit! Ładowanie danych z dysku...")
+                if self.view and self.view.winfo_exists():
+                    self.app.after(0, self.view.set_status, "Cache hit! Ładowanie danych z dysku...")
                 self.raw_data = read_geotiff_bands(cache_path)
             else:
-                self.app.after(0, self.view.set_status, "Cache miss. Pobieranie danych z API...")
+                if self.view and self.view.winfo_exists():
+                    self.app.after(0, self.view.set_status, "Cache miss. Pobieranie danych z API...")
                 fetched_data = self.app.data_loader.fetch_data(bbox, image_size, time_interval)
                 if not fetched_data: raise Exception("Nie udało się pobrać danych.")
-                self.app.after(0, self.view.set_status, "Zapisywanie danych w cache...")
+                if self.view and self.view.winfo_exists():
+                    self.app.after(0, self.view.set_status, "Zapisywanie danych w cache...")
                 save_bands_to_geotiff(fetched_data, bbox, cache_path)
                 self.raw_data = fetched_data
             
-            self.app.after(0, self.view.set_status, "Dane załadowane. Gotowy do obliczeń.")
-            self.app.after(0, self.view.set_calc_buttons_state, True)
+            if self.view and self.view.winfo_exists():
+                self.app.after(0, self.view.set_status, "Dane załadowane. Gotowy do obliczeń.")
+                self.app.after(0, self.view.set_calc_buttons_state, True)
         except Exception as e:
-            self.app.after(0, self.view.set_status, f"Błąd podczas ładowania danych: {e}")
+            if self.view and self.view.winfo_exists():
+                self.app.after(0, self.view.set_status, f"Błąd podczas ładowania danych: {e}")
         finally:
-            self.app.after(0, self.view.set_fetch_button_state, True)
+            if self.view and self.view.winfo_exists():
+                self.app.after(0, self.view.set_fetch_button_state, True)
 
     def _calculation_worker(self, index_type: str):
         try:
+            # ZMIANA: Sprawdzanie istnienia widoku przed pobraniem danych
+            if not (self.view and self.view.winfo_exists()):
+                print("Map view closed, aborting calculation.")
+                return
+            
             processor_type = self.view.get_selected_processor()
             self.last_calculated_index = index_type
             
             if processor_type == "GPU":
                 self.index_result, self.result_mask = calculate_index_gpu(self.raw_data, index_type)
             else:
-                # ZMIANA: Pobierz liczbę wątków z widoku i przekaż do funkcji CPU
                 n_threads = self.view.get_cpu_thread_count()
                 self.index_result, self.result_mask = calculate_index_cpu(self.raw_data, index_type, n_jobs=n_threads)
             
-            self.app.after(0, self.view.display_result, index_type)
+            if self.view and self.view.winfo_exists():
+                self.app.after(0, self.view.display_result, index_type)
             
         except Exception as e:
             error_message = f"An error occurred during calculation:\n\n{type(e).__name__}: {e}"
             print(f"ERROR in calculation worker: {error_message}")
-            self.app.after(0, lambda: messagebox.showerror("Calculation Error", error_message))
-            self.app.after(0, self.view.set_status, "Calculation failed. See error details.")
+            if self.view and self.view.winfo_exists():
+                self.app.after(0, lambda: messagebox.showerror("Calculation Error", error_message))
+                self.app.after(0, self.view.set_status, "Calculation failed. See error details.")
         finally:
             self._stop_timer()
-            self.app.after(0, self.view.set_all_buttons_state, True)
+            if self.view and self.view.winfo_exists():
+                self.app.after(0, self.view.set_all_buttons_state, True)
 
+    # ... (reszta metod bez zmian)
     def _get_precision_for_zoom(self, zoom: int) -> int:
         if zoom <= 6: return 2
         if zoom <= 10: return 3
@@ -137,16 +153,20 @@ class MapController:
 
     def _update_timer(self):
         if not self.timer_running: return
-        elapsed = time.perf_counter() - self.start_time
+        # ZMIANA: Sprawdzanie istnienia widoku przed aktualizacją timera
         if self.view and self.view.winfo_exists():
+            elapsed = time.perf_counter() - self.start_time
             self.app.after(0, self.view.update_timer_display, elapsed)
             self.timer_after_id = self.app.after(100, self._update_timer)
+        else:
+            self.timer_running = False # Zatrzymaj pętlę, jeśli okno zniknęło
 
     def _stop_timer(self):
         self.timer_running = False
         if self.timer_after_id:
             self.app.after_cancel(self.timer_after_id)
             self.timer_after_id = None
-        elapsed = time.perf_counter() - self.start_time
+        
         if self.view and self.view.winfo_exists():
+            elapsed = time.perf_counter() - self.start_time
             self.app.after(0, lambda: self.view.update_timer_display(elapsed, is_final=True))
